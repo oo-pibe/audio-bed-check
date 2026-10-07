@@ -28,7 +28,7 @@ def test_explicit_argument_wins_over_env(monkeypatch):
 @pytest.mark.skipif(not HAVE_FFMPEG, reason="ffmpeg not on PATH")
 def test_decodes_to_48k_mono_float(tmp_path):
     path = tmp_path / "tone.wav"
-    write_wav(path, sine(2, 440, 0.5), sr=44100)
+    write_wav(path, sine(2, 440, 0.5, sr=44100), sr=44100)
     samples, sr = decode(path)
     assert sr == SR
     assert samples.dtype == np.float32
@@ -48,3 +48,15 @@ def test_undecodable_file(tmp_path):
     path.write_bytes(b"not audio at all")
     with pytest.raises(DecodeError, match="ffmpeg could not decode it"):
         decode(path)
+
+
+def test_wav_stream_parsing_without_ffmpeg():
+    from audio_bed_check.decode import _samples_from_wav
+    body = np.array([8192, -16384, 32767], dtype="<i2").tobytes()
+    header = b"RIFF" + b"\xff\xff\xff\xff" + b"WAVE" + b"fmt " + (16).to_bytes(4, "little") + bytes(16)
+    stream = header + b"data" + b"\xff\xff\xff\xff" + body
+    got = _samples_from_wav(stream)
+    assert got.dtype == np.float32
+    assert np.allclose(got, [0.25, -0.5, 32767 / 32768])
+    with pytest.raises(DecodeError, match="not a WAV stream"):
+        _samples_from_wav(b"garbage")

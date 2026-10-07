@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from audio_bed_check.loudness import HOP, block_loudness, k_weight, momentary, true_peak
-from tests.synth import SR, noise, sine
+from audio_bed_check.loudness import HOP, block_loudness, fft_convolve, k_weight, momentary, true_peak
+from tests.synth import SR, fade, noise, sine
 
 
 def test_997hz_full_scale_sine_reads_minus_3_lkfs():
@@ -43,14 +43,14 @@ def test_other_sample_rates_are_refused():
 
 
 def test_true_peak_of_a_half_scale_sine():
-    assert abs(true_peak(sine(2, 1000, 0.5), SR) + 6.02) < 0.1
+    assert abs(true_peak(fade(sine(2, 1000, 0.5)), SR) + 6.02) < 0.01
 
 
 def test_true_peak_sees_the_inter_sample_peak():
     # fs/4 with a 45 degree phase: every sample is 0.3536 (-9.03 dBFS) but the waveform peaks at 0.5 (-6.02).
-    x = sine(2, SR / 4, 0.5, phase=np.pi / 4)
+    x = fade(sine(2, SR / 4, 0.5, phase=np.pi / 4))
     assert abs(float(np.abs(x).max()) - 0.3536) < 0.01
-    assert abs(true_peak(x, SR) + 6.02) < 0.2
+    assert abs(true_peak(x, SR) + 6.02) < 0.01
 
 
 def test_true_peak_of_silence():
@@ -66,3 +66,11 @@ def test_true_peak_does_not_depend_on_block_size():
 
 def test_k_weight_keeps_length():
     assert len(k_weight(noise(3), SR)) == 3 * SR
+
+
+def test_fft_convolve_matches_direct_convolution_across_blocks():
+    rng = np.random.default_rng(0)
+    x, h = rng.standard_normal(10_000), rng.standard_normal(300)
+    ref = np.convolve(x, h)
+    assert np.allclose(fft_convolve(x, h, block=1024, full=True), ref, atol=1e-9)
+    assert np.allclose(fft_convolve(x, h, block=1024), ref[: len(x)], atol=1e-9)

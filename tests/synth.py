@@ -130,3 +130,16 @@ def read_wav(path) -> tuple[np.ndarray, int]:
         sr = w.getframerate()
         raw = w.readframes(w.getnframes())
     return (np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32767), sr
+
+
+def fade(x: np.ndarray, seconds: float = 0.01, sr: int = SR) -> np.ndarray:
+    """Raised-cosine fade at both ends.
+
+    A hard cut at the file edge cannot then add its own inter-sample overshoot.
+    """
+    n = _n(seconds, sr)
+    ramp = np.sin(np.linspace(0, np.pi / 2, n)) ** 2
+    y = x.astype(np.float32).copy()
+    y[:n] *= ramp
+    y[-n:] *= ramp[::-1]
+    return y

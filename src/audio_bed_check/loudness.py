@@ -4,23 +4,23 @@ Everything is 48 kHz only. The decoder always produces 48 kHz, and the filter co
 standard's published 48 kHz set; refusing other rates is cheaper than getting them silently wrong.
 """
 
+import functools
+
 import numpy as np
 
 SR = 48000
 HOP = 0.1          # momentary hop, seconds
 WINDOW = 0.4       # momentary window, seconds
 FLOOR_LKFS = -100.0
+FLOOR_DBTP = -99.0
 
 # BS.1770-4 Annex 1, 48 kHz: (b0, b1, b2, a1, a2). Stage 1 is the high shelf, stage 2 the RLB high pass.
 _STAGE1 = (1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585)
 _STAGE2 = (1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621)
 _TAPS = 4096       # the slowest pole has radius ~0.995; 0.995**4096 is ~1e-9, so truncation is inaudible
 
-_kernel_cache: np.ndarray | None = None
-
-
 def _impulse_response(n: int = _TAPS) -> np.ndarray:
-    """Run a unit impulse through both biquads (a tiny Python loop; cached after the first call)."""
+    """Run a unit impulse through both biquads (a tiny Python loop)."""
     x = np.zeros(n)
     x[0] = 1.0
     for b0, b1, b2, a1, a2 in (_STAGE1, _STAGE2):
@@ -35,11 +35,12 @@ def _impulse_response(n: int = _TAPS) -> np.ndarray:
     return x
 
 
+@functools.cache
 def _kernel() -> np.ndarray:
-    global _kernel_cache
-    if _kernel_cache is None:
-        _kernel_cache = _impulse_response()
-    return _kernel_cache
+    """The cascade's impulse response, computed once; read-only so no caller can corrupt it."""
+    h = _impulse_response()
+    h.flags.writeable = False
+    return h
 
 
 def _check_rate(sr: int) -> None:
@@ -66,16 +67,25 @@ def fft_convolve(x: np.ndarray, h: np.ndarray, block: int = 1 << 17, full: bool 
 
 
 def k_weight(samples: np.ndarray, sr: int) -> np.ndarray:
-    """The K-weighted signal (float64, same length)."""
+    """The K-weighted signal (float64, same length).
+
+    The zero-initial-state response of the two BS.1770 biquads, truncated to 4096 taps.
+    """
     _check_rate(sr)
     return fft_convolve(np.asarray(samples, dtype=np.float64), _kernel())
 
 
 def block_loudness(weighted: np.ndarray, sr: int, window: float, hop: float) -> np.ndarray:
-    """Loudness of an already K-weighted signal per block, in LKFS; floored at -100."""
+    """Loudness of an already K-weighted signal per block, in LKFS; floored at -100.
+
+    `window` and `hop` are seconds. Input shorter than one window returns an empty array. The running
+    sum of squares is monotone, so no window can go negative; true silence gives 0, then the floor.
+    """
     _check_rate(sr)
     x = np.asarray(weighted, dtype=np.float64)
     w, h = int(round(window * sr)), int(round(hop * sr))
+    if h < 1:
+        raise ValueError("hop must be at least one sample")
     if len(x) < w:
         return np.zeros(0)
     starts = np.arange(0, len(x) - w + 1, h)
@@ -112,7 +122,7 @@ def true_peak(samples: np.ndarray, sr: int, block: int = 1 << 16) -> float:
     x = np.asarray(samples, dtype=np.float64)
     n = len(x)
     if n == 0:
-        return -99.0
+        return FLOOR_DBTP
     h = _interp_kernel()
     margin = _INTERP_HALF // _UP + 1      # input samples of context a kept sample needs on each side
     peak = 0.0
@@ -125,4 +135,4 @@ def true_peak(samples: np.ndarray, sr: int, block: int = 1 << 16) -> float:
         lo = (start - a) * _UP + _INTERP_HALF
         hi = (end - a) * _UP + _INTERP_HALF
         peak = max(peak, float(np.abs(y[lo:hi]).max()))
-    return 20 * np.log10(peak) if peak > 0 else -99.0
+    return 20 * np.log10(peak) if peak > 0 else FLOOR_DBTP

@@ -19,7 +19,9 @@ def sine(seconds: float, freq: float, amp: float, phase: float = 0.0, sr: int = 
     return (amp * np.sin(2 * np.pi * freq * t + phase)).astype(np.float32)
 
 
-def ar1_envelope(n: int, seed: int = 0, rho: float = 0.7, depth_db: float = 6.0, knot_s: float = 0.1, sr: int = SR) -> np.ndarray:
+def ar1_envelope(
+    n: int, seed: int = 0, rho: float = 0.7, depth_db: float = 6.0, knot_s: float = 0.1, sr: int = SR
+) -> np.ndarray:
     """A stationary, slowly wandering gain (linear), about depth_db peak to peak, with short memory.
 
     AR(1) with rho=0.7 at 0.1 s knots: the correlation at a 0.5 s lag is 0.7**5 = 0.17, so the
@@ -36,7 +38,10 @@ def ar1_envelope(n: int, seed: int = 0, rho: float = 0.7, depth_db: float = 6.0,
 
 
 def tile(segment: np.ndarray, times: int, crossfade: float = 0.0, sr: int = SR) -> np.ndarray:
-    """Repeat a segment, optionally with an equal-power crossfade at each join (the loop grows by L - k each time)."""
+    """Repeat a segment, optionally with an equal-power crossfade at each join.
+
+    With a crossfade of k samples each repeat adds L - k, so the period is L - k.
+    """
     if crossfade <= 0:
         return np.tile(segment, times).astype(np.float32)
     k = int(crossfade * sr)

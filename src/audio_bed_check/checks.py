@@ -110,8 +110,8 @@ def level_steps(samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: fl
     Only the sustained step fails: the mean of the 2 s after a boundary against the 2 s before. A hard
     join shifts the level and it stays shifted; a crowd surge spikes and comes back, and that is the
     recording's character, so range and transient are reported, never failed. A step within the
-    dropped edge plus the run-up (under 3 s from either end at the defaults, and not at all inside
-    the dropped edge) is not seen.
+    dropped edge plus the run-up is not seen as a full step. A join under 3 s from either end at the
+    defaults reads smaller than it is, and inside the dropped edge it is not seen at all.
     """
     if edge < 0:
         raise ValueError("edge must be >= 0")

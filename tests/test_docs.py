@@ -1,5 +1,6 @@
 """The skill and references must track the code: every flag, every message, every manifest field."""
 
+import argparse
 import json
 import re
 from pathlib import Path
@@ -44,8 +45,8 @@ def test_skill_frontmatter():
 def _flags(parser):
     for action in parser._actions:
         yield from (s for s in action.option_strings if s.startswith("--"))
-        for sub in (action.choices or {}).values() if hasattr(action, "choices") and action.choices else []:
-            if hasattr(sub, "_actions"):
+        if isinstance(action, argparse._SubParsersAction):
+            for sub in action.choices.values():
                 yield from _flags(sub)
 
 

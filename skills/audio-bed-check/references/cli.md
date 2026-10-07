@@ -44,8 +44,8 @@ every file is reported. A file that cannot be decoded stops the run with exit 2 
 
 ## Output
 
-Each block starts with the file name; the `ok`, `FAIL`, `info` and `warn` lines follow. `info` lines never affect
-the exit code.
+Each block starts with the file name; the `ok`, `FAIL`, `info` and `warn` lines follow. `info` lines
+never affect the exit code.
 
 ## Messages
 

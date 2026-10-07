@@ -1,7 +1,8 @@
 # The three checks
 
 All measurements use ITU-R BS.1770-4 K-weighting, computed in numpy at 48 kHz (files are decoded to
-48 kHz mono by ffmpeg). Levels are LKFS; differences between levels are LU; the steps check reports its figures in dB.
+48 kHz mono by ffmpeg). Levels are LKFS; differences between levels are LU.
+The steps check reports its figures in dB.
 
 ## loop
 
@@ -12,8 +13,9 @@ The repeat reported is the fundamental: among the lags of 0.5 s or more where th
 a local peak at or above `--loop-threshold` (0.75), the shortest one within 0.05 of the strongest. A
 loop correlates at every multiple of its period at about the same height, so this names the period
 rather than a half-period peak. If that fundamental is shorter than `--min-period` (6 s) the file
-passes with a note, because music repeats at bar length; at or longer, it fails. With no peak above the threshold,
-the score shown is the best value in the flaggable range and the file passes.
+passes with a note, because music repeats at bar length; at or longer, it fails.
+With no peak at or above the threshold, the score shown is the best value in the flaggable range and the file
+passes.
 
 Files shorter than twice the minimum period plus a second are not judged.
 
@@ -59,7 +61,7 @@ Inputs: the voiceover on its own and the rendered mix.
 This is voice-plus-bed against bed, which is what a listener hears and what WCAG describes, not the
 ratio of the two stems. It is also a K-weighted figure: a voice and a bed with different spectra
 measure by their loudness, not their sample gain: a voice with less high-frequency content than the
-bed measures lower than the gain that was applied to it.
+bed shows less separation than the gain difference applied to it.
 
 Profiles and where their numbers come from:
 

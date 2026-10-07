@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "audio-bed-check"
+dynamic = ["version"]
+description = "Check an audio bed for loops and level steps, and a voiceover mix for speech-over-bed separation."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+keywords = ["audio", "loudness", "bs1770", "ffmpeg", "video", "voiceover", "qa"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Multimedia :: Sound/Audio :: Analysis",
+]
+
+[project.urls]
+Homepage = "https://github.com/oo-pibe/audio-bed-check"
+Issues = "https://github.com/oo-pibe/audio-bed-check/issues"
+Security = "https://github.com/oo-pibe/audio-bed-check/blob/main/SECURITY.md"
+
+[project.scripts]
+audio-bed-check = "audio_bed_check.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6", "build>=1.2"]
+
+[tool.hatch.version]
+path = "src/audio_bed_check/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/audio_bed_check"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"skills" = "audio_bed_check/skills"
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "skills", "README.md", "LICENSE", "pyproject.toml"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

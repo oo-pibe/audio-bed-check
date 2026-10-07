@@ -4,11 +4,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .loudness import HOP, momentary
+from .loudness import HOP, block_loudness, k_weight, momentary, true_peak
 
 SHORTEST_LAG = 0.5  # seconds; under this the 400 ms momentary window correlates neighbouring frames by itself
 PEAK_TOLERANCE = 0.05  # a loop correlates at every multiple of its period; the fundamental is the shortest
-                       # peak within this of the strongest, so a half-period shoulder cannot name the repeat
+                       # peak within this of the strongest, so a half-period peak cannot name the repeat
 
 
 @dataclass(frozen=True)
@@ -69,3 +69,46 @@ def loop_score(
     if passed:
         notes = (f"repeats every {period:.1f}s, under --min-period {min_period:g}s, not flagged",)
     return LoopResult(min(float(ac[k]), 1.0), period, threshold, min_period, passed, notes)
+
+
+BLOCK = 0.5  # seconds; the scale a listener hears as "the sound changed" rather than as texture
+RUN = 4      # blocks (2 s) averaged on each side of a boundary for the sustained step
+
+
+@dataclass(frozen=True)
+class StepsResult:
+    step_db: float
+    step_at_s: float | None
+    range_db: float
+    transient_db: float
+    peak_dbtp: float
+    max_step: float
+    passed: bool
+    notes: tuple[str, ...] = ()
+
+
+def level_steps(
+    samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: float = 0.75
+) -> StepsResult:
+    """Does the level lurch?
+
+    Only the sustained step fails: the mean of the 2 s after a boundary against the 2 s before. A hard
+    join shifts the level and it stays shifted; a crowd surge spikes and comes back, and that is the
+    recording's character, so range and transient are reported, never failed.
+    """
+    env = block_loudness(k_weight(samples, sr), sr, BLOCK, BLOCK)
+    skip = int(np.ceil(edge / BLOCK))
+    env = env[skip:len(env) - skip] if skip else env
+    peak = true_peak(samples, sr)
+    if len(env) < 2 * RUN + 1:
+        return StepsResult(0.0, None, 0.0, 0.0, peak, max_step, True,
+                           ("too short to measure level steps (needs about 6s)",))
+    range_db = float(env.max() - env.min())
+    transient = float(np.abs(np.diff(env)).max())
+    step, at = 0.0, None
+    for i in range(RUN, len(env) - RUN + 1):
+        d = abs(float(env[i:i + RUN].mean() - env[i - RUN:i].mean()))
+        if d > step:
+            step, at = d, (skip + i) * BLOCK
+    return StepsResult(round(step, 2), at, round(range_db, 2), round(transient, 2), round(peak, 2),
+                       max_step, step <= max_step)

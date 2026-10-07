@@ -25,7 +25,7 @@ def test_an_unrepeated_bed_passes():
     assert r.notes == ()
 
 
-def test_a_half_period_shoulder_does_not_name_the_repeat():
+def test_a_half_period_peak_does_not_name_the_repeat():
     # seed 43's envelope also correlates at 1.0 s; the fundamental must still be the 2 s tile
     r = loop_score(tile(textured(2, 43), 20), SR, min_period=1.5)
     assert not r.passed

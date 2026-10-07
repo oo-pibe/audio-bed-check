@@ -20,7 +20,7 @@ MESSAGES = [
     "must be zero or more, got", "must be between 0 (exclusive) and 1, got",
     "mix true peak above -1 dBTP", "ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG",
     "no such file", "ffmpeg could not decode it", "it has no audio stream", "ffmpeg not found at",
-    "decoded to no audio", "not a WAV stream", "resample to 48 kHz",
+    "decoded to no audio", "not a WAV stream", "resample to 48 kHz", "no level change anywhere",
 ]
 
 

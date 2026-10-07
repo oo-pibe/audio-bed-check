@@ -67,7 +67,8 @@ def test_max_step_is_respected():
     assert not level_steps(x, SR, max_step=4.0).passed
 
 
-def test_a_flat_bed_still_reports_where_it_looked():
+def test_a_flat_bed_names_no_place():
     r = level_steps(np.zeros(20 * SR, dtype=np.float32), SR)
-    assert r.step_db == 0.0
-    assert isinstance(r.step_at_s, float) and r.step_at_s == 3.0
+    assert r.passed and r.step_db == 0.0
+    assert r.step_at_s is None
+    assert r.notes == ("no level change anywhere",)

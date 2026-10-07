@@ -91,8 +91,8 @@ class StepsResult:
     """step_db: largest change in mean level between the 2 s before and after a half-second boundary,
     at step_at_s (seconds into the file); the only field that decides `passed`. range_db (max minus
     min) and transient_db (largest change between adjacent half-second blocks) are reported, never
-    failed. step_at_s is None when the file is too short to measure. Values are full precision; the
-    CLI rounds."""
+    failed. step_at_s is None when the file is too short to measure or the level never changes.
+    Values are full precision; the CLI rounds."""
 
     step_db: float
     step_at_s: float | None
@@ -128,6 +128,9 @@ def level_steps(samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: fl
     boundaries = range(STEP_SIDE, len(env) - STEP_SIDE + 1)
     # a plain scan: a 10-minute bed is 1,200 boundaries, nothing next to the K-weighting
     steps = [abs(float(env[i:i + STEP_SIDE].mean() - env[i - STEP_SIDE:i].mean())) for i in boundaries]
+    if max(steps) == 0.0:   # digital silence: every boundary ties, so no place is the worst
+        return StepsResult(0.0, None, range_db, transient, peak, max_step, True,
+                           ("no level change anywhere",))
     worst = int(np.argmax(steps))
     step, at = steps[worst], (skip + boundaries[worst]) * STEP_BLOCK
     return StepsResult(step, at, range_db, transient, peak, max_step, step <= max_step)

@@ -1,4 +1,3 @@
-import shutil
 import sys
 
 import numpy as np
@@ -7,7 +6,11 @@ import pytest
 from audio_bed_check.decode import DecodeError, decode, find_ffmpeg
 from tests.synth import SR, sine, write_wav
 
-HAVE_FFMPEG = shutil.which("ffmpeg") is not None
+try:
+    find_ffmpeg()
+    HAVE_FFMPEG = True
+except DecodeError:
+    HAVE_FFMPEG = False
 
 
 NOT_ON_PATH = "^ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG$"

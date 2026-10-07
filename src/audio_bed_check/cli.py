@@ -114,7 +114,11 @@ def _run(args) -> list[dict]:
                         "profile": OVERRIDE if overridden else args.profile, "separation": _result(r)})
         return results
     for path in args.files:
-        samples, sr = decode(path, args.ffmpeg)
+        try:
+            samples, sr = decode(path, args.ffmpeg)
+        except DecodeError as e:   # one unreadable file must not throw away the rest of the batch
+            results.append({"file": path, "passed": False, "error": str(e)})
+            continue
         entry = {"file": path, "passed": True}
         if args.command in ("loop", "bed"):
             r = loop_score(samples, sr, min_period=args.min_period, threshold=args.loop_threshold)
@@ -134,6 +138,8 @@ def _verdict(passed: bool) -> str:
 
 def _render(entry: dict) -> str:
     lines = [entry["file"]]
+    if "error" in entry:
+        lines.append(f"  error {entry['error']}")
     if "loop" in entry:
         r = entry["loop"]
         if r["notes"]:
@@ -176,6 +182,8 @@ def main(argv=None) -> int:
         print(json.dumps(results, indent=2))
     else:
         print("\n\n".join(_render(r) for r in results))
+    if any("error" in r for r in results):
+        return 2
     return 0 if all(r["passed"] for r in results) else 1
 
 

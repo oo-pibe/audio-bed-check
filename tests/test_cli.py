@@ -4,8 +4,14 @@ import numpy as np
 import pytest
 
 from audio_bed_check import cli
-from audio_bed_check.decode import DecodeError
+from audio_bed_check.decode import DecodeError, find_ffmpeg
 from tests.synth import SR, gain, gated, noise, step_gain, textured, tile, write_wav
+
+try:
+    find_ffmpeg()
+    HAVE_FFMPEG = True
+except DecodeError:
+    HAVE_FFMPEG = False
 
 RUNS = [(1, 4), (6, 9), (11, 14), (16, 19), (21, 24)]
 
@@ -57,7 +63,7 @@ def test_a_silent_bed_renders_without_crashing(wavs, capsys):
     assert cli.main(["bed", str(wavs["silent"])]) == 0
     out = capsys.readouterr().out
     assert "ok    loop        0.00 (level is constant; nothing to correlate)" in out
-    assert "ok    step        0.0 dB at" in out
+    assert "ok    step        no level change anywhere" in out
 
 
 def test_too_short_file_prints_the_note_on_an_ok_line(wavs, capsys, tmp_path):
@@ -133,9 +139,28 @@ def test_decode_error_is_exit_2(monkeypatch, capsys, tmp_path):
         raise DecodeError("ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG")
     monkeypatch.setattr(cli, "decode", boom)
     assert cli.main(["loop", str(tmp_path / "x.wav")]) == 2
-    assert capsys.readouterr().err == (
-        "audio-bed-check: ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG\n"
-    )
+    out = capsys.readouterr().out
+    assert "  error ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG" in out
+
+
+def test_an_undecodable_file_does_not_stop_the_batch(wavs, monkeypatch, capsys, tmp_path):
+    from tests.synth import read_wav
+    missing = tmp_path / "missing.wav"
+
+    def reader(path, ffmpeg=None):
+        if str(path) == str(missing):
+            raise DecodeError(f"{path}: no such file")
+        return read_wav(path)
+    monkeypatch.setattr(cli, "decode", reader)
+    assert cli.main(["bed", str(wavs["clean"]), str(missing)]) == 2
+    out = capsys.readouterr().out
+    assert "ok    loop" in out
+    assert f"  error {missing}: no such file" in out
+    assert cli.main(["bed", str(wavs["clean"]), str(missing), "--json"]) == 2
+    data = json.loads(capsys.readouterr().out)
+    assert [e["file"] for e in data] == [str(wavs["clean"]), str(missing)]
+    assert "error" not in data[0] and data[0]["passed"]
+    assert data[1] == {"file": str(missing), "passed": False, "error": f"{missing}: no such file"}
 
 
 def test_a_library_value_error_is_exit_2_not_a_traceback(wavs, monkeypatch, capsys):
@@ -172,3 +197,11 @@ def test_usage_error_is_exit_2(capsys):
     with pytest.raises(SystemExit) as e:
         cli.main(["separation", "mix.wav"])  # --vo is required
     assert e.value.code == 2
+
+
+@pytest.mark.skipif(not HAVE_FFMPEG, reason="ffmpeg not found")
+def test_a_looped_wav_fails_end_to_end_through_ffmpeg(tmp_path, capsys):
+    path = tmp_path / "looped.wav"
+    write_wav(path, tile(textured(12, 1), 4))
+    assert cli.main(["bed", str(path)]) == 1
+    assert "repeats every 12.0s" in capsys.readouterr().out

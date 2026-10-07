@@ -69,7 +69,7 @@ with known repeats, joins and gains.
 The loudness code is ITU-R BS.1770-4 K-weighting written in numpy. The test suite compares its
 momentary loudness with ffmpeg's `ebur128` filter on the same file (median difference under 0.1 LU,
 95th percentile under 0.2 LU), and its true peak on a test tone (within 0.2 dB). These tests skip
-when the ffmpeg in use was built without `ebur128`.
+when no ffmpeg is found, or when the one found was built without `ebur128`.
 
 ## From Python
 

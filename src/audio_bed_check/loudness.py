@@ -19,6 +19,7 @@ _STAGE1 = (1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318
 _STAGE2 = (1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621)
 _TAPS = 4096       # the slowest pole has radius ~0.995; 0.995**4096 is ~1e-9, so truncation is inaudible
 
+
 def _impulse_response(n: int = _TAPS) -> np.ndarray:
     """Run a unit impulse through both biquads (a tiny Python loop)."""
     x = np.zeros(n)

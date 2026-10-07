@@ -1,7 +1,7 @@
 # Command reference
 
-`audio-bed-check SUBCOMMAND ...`. `--help` on any subcommand lists its flags; `--version` prints the
-version. Files can be anything ffmpeg reads, video included; each is decoded once to 48 kHz mono.
+`audio-bed-check SUBCOMMAND ...`. `--help` on any subcommand lists its flags.
+`audio-bed-check --version` prints the version; it is a top-level flag and goes before any subcommand. Files can be anything ffmpeg reads, video included; each is decoded once to 48 kHz mono.
 
 ## Flags on every subcommand
 
@@ -32,7 +32,9 @@ version. Files can be anything ffmpeg reads, video included; each is decoded onc
 ## bed BED [BED ...]
 
 `loop` and `steps` together, with all four flags above. A failing check does not stop the batch;
-every file is reported. A file that cannot be decoded stops the run with exit 2 and no results.
+every file is reported. A file that cannot be decoded is reported with an `error` line and the run
+exits 2 after the other files are checked; in `--json` its entry is `{"file", "passed": false,
+"error"}`. The same holds for `loop` and `steps` with several files.
 
 ## separation MIX --vo VO
 
@@ -44,7 +46,8 @@ every file is reported. A file that cannot be decoded stops the run with exit 2 
 
 ## Output
 
-Each block starts with the file name; the `ok`, `FAIL`, `info` and `warn` lines follow. `info` lines
+Each block starts with the file name; the `ok`, `FAIL`, `info` and `warn` lines follow, or a single
+`error` line for a file that could not be decoded. `info` lines
 never affect the exit code.
 
 ## Messages
@@ -55,6 +58,8 @@ never affect the exit code.
   period was found. Passes. Lower `--min-period` if you want it flagged.
 - "too short to measure level steps (needs at least 6.5s)": fewer than nine half-second blocks remain
   after the edges are dropped. Passes, with zeros.
+- "no level change anywhere": the steps check on digital silence; every boundary measures 0.0 dB,
+  so no place is named. Passes.
 - "level is constant; nothing to correlate": the loop check on digital silence or a constant tone
   (under 0.01 dB of envelope variation). Passes with score 0. A steady bed still varies by tenths of
   a dB and is checked normally.
@@ -96,5 +101,7 @@ never affect the exit code.
 
 - 0: every check passed.
 - 1: at least one check failed.
-- 2: usage error (argparse prints its usage and error line), decode error, or a check that could
-  not run (one sentence on stderr, prefixed `audio-bed-check:`).
+- 2: usage error (argparse prints its usage and error line), or a check that could not run (one
+  sentence on stderr, prefixed `audio-bed-check:`). For `loop`, `steps` and `bed`, a file that
+  cannot be decoded is reported with an `error` line and the run exits 2 after the other files are
+  checked; for `separation`, a decode error is one sentence on stderr.

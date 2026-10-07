@@ -55,6 +55,18 @@ Inputs: the voiceover on its own and the rendered mix.
 This is voice-plus-bed against bed, which is what a listener hears and what WCAG describes, not the
 ratio of the two stems. It is also a K-weighted figure: a voice and a bed with different spectra
 measure by their loudness, not their sample gain (a band-limited voice placed +10 dB over white
-noise in the sample domain measured about 8.3 LU, because K-weighting favours the brighter bed). Profiles: `music` 10 LU, `ambience` 15 LU, `wcag` 20 LU (WCAG 2 technique
-G56: background at least 20 dB below foreground speech). `--min-separation` overrides. The mix's true
-peak is printed, with a warning above -1 dBTP.
+noise in the sample domain measured about 8.3 LU, because K-weighting favours the brighter bed).
+
+Profiles and where their numbers come from:
+
+- `music` 10 LU and `ambience` 15 LU: Torcoli, Freke-Morin, Paulus, Simon and Shirley, "Preferred
+  Levels for Background Ducking to Produce Esthetically Pleasing Audio for TV with Clear Speech",
+  Journal of the Audio Engineering Society 67(12), 2019, doi:10.17743/jaes.2019.0052. From the
+  abstract: "we recommend at least 10 LU difference for CoM [commentary over music] and at least
+  15 LU for CoA [commentary over ambience]". The same paper found non-expert listeners preferred
+  about 4 LU more than experts, so these are floors.
+- `wcag` 20 LU: WCAG 2 technique G56, "Mixing audio files so that non-speech sounds are at least 20
+  decibels lower than the speech audio content". G56 states its 20 dB in dB(A) SPL; this tool's LU
+  difference is the nearest file-based measure of the same idea, not the same unit.
+
+`--min-separation` overrides. The mix's true peak is printed, with a warning above -1 dBTP.

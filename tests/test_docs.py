@@ -13,7 +13,7 @@ SRC = ROOT / "src" / "audio_bed_check"
 MESSAGES = [
     "too short to test for a repeat longer than", "not flagged", "too short to measure level steps",
     "nothing to correlate", "min_period must be positive", "threshold must be between", "edge must be >= 0",
-    "no speech found in the voiceover above", "no gap of 0.4s or more",
+    "no speech found in the voiceover above", "s or more between speech runs",
     "fall outside the mix; check --vo-offset",
     "mix true peak above -1 dBTP", "ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG",
     "no such file", "ffmpeg could not decode it", "it has no audio stream", "ffmpeg not found at",

@@ -3,13 +3,43 @@
 import argparse
 import dataclasses
 import json
+import math
 import sys
 from importlib.metadata import version as _version
 
-from .checks import NoSpeechError, level_steps, loop_score, separation
+from .checks import level_steps, loop_score, separation
 from .decode import DecodeError, decode
 
 PROFILES = {"music": 10.0, "ambience": 15.0, "wcag": 20.0}
+OVERRIDE = "--min-separation"   # what the profile column says when the flag replaced the profile
+
+
+def _number(text: str) -> float:
+    value = float(text)
+    if not math.isfinite(value):
+        raise argparse.ArgumentTypeError(f"must be a finite number, got {text}")
+    return value
+
+
+def _positive(text: str) -> float:
+    value = _number(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive number, got {text}")
+    return value
+
+
+def _non_negative(text: str) -> float:
+    value = _number(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError(f"must be zero or more, got {text}")
+    return value
+
+
+def _score(text: str) -> float:
+    value = _number(text)
+    if not 0 < value <= 1:
+        raise argparse.ArgumentTypeError(f"must be between 0 (exclusive) and 1, got {text}")
+    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,16 +57,16 @@ def build_parser() -> argparse.ArgumentParser:
                         help="ffmpeg to use (default: $AUDIO_BED_CHECK_FFMPEG, then PATH)")
 
     def loop_flags(sp):
-        sp.add_argument("--min-period", type=float, default=6.0, metavar="S",
+        sp.add_argument("--min-period", type=_positive, default=6.0, metavar="S",
                         help="shortest repeat length that counts as a loop, seconds "
                              "(default 6; shorter repeats are noted)")
-        sp.add_argument("--loop-threshold", type=float, default=0.75, metavar="SCORE",
-                        help="autocorrelation score at which a repeat fails (default 0.75)")
+        sp.add_argument("--loop-threshold", type=_score, default=0.75, metavar="SCORE",
+                        help="autocorrelation score at which a repeat fails, 0 to 1 (default 0.75)")
 
     def steps_flags(sp):
-        sp.add_argument("--max-step", type=float, default=6.0, metavar="DB",
+        sp.add_argument("--max-step", type=_positive, default=6.0, metavar="DB",
                         help="largest sustained level step allowed, dB (default 6)")
-        sp.add_argument("--edge", type=float, default=0.75, metavar="S",
+        sp.add_argument("--edge", type=_non_negative, default=0.75, metavar="S",
                         help="seconds ignored at each end so fades are not read as steps (default 0.75)")
 
     for name, flag_sets, text in (
@@ -58,10 +88,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="the voiceover on its own, as it was placed in the mix")
     sp.add_argument("--profile", choices=PROFILES, default="music",
                     help="minimum separation: music 10 LU, ambience 15 LU, wcag 20 LU (default music)")
-    sp.add_argument("--min-separation", type=float, metavar="LU", help="override the profile's minimum")
-    sp.add_argument("--gate", type=float, default=-44.0, metavar="DBFS",
+    sp.add_argument("--min-separation", type=_positive, metavar="LU", help="override the profile's minimum")
+    sp.add_argument("--gate", type=_number, default=-44.0, metavar="DBFS",
                     help="level above which the voiceover counts as speech (default -44)")
-    sp.add_argument("--vo-offset", type=float, default=0.0, metavar="S",
+    sp.add_argument("--vo-offset", type=_number, default=0.0, metavar="S",
                     help="where the voiceover starts in the mix, seconds (default 0)")
     common(sp)
     return p
@@ -77,10 +107,11 @@ def _run(args) -> list[dict]:
     if args.command == "separation":
         vo, sr = decode(args.vo, args.ffmpeg)
         mix, _ = decode(args.mix, args.ffmpeg)
-        min_lu = args.min_separation if args.min_separation is not None else PROFILES[args.profile]
+        overridden = args.min_separation is not None
+        min_lu = args.min_separation if overridden else PROFILES[args.profile]
         r = separation(vo, mix, sr, min_lu=min_lu, gate_dbfs=args.gate, vo_offset=args.vo_offset)
-        results.append({"file": args.mix, "passed": r.passed, "profile": args.profile,
-                        "separation": _result(r)})
+        results.append({"file": args.mix, "passed": r.passed,
+                        "profile": OVERRIDE if overridden else args.profile, "separation": _result(r)})
         return results
     for path in args.files:
         samples, sr = decode(path, args.ffmpeg)
@@ -108,26 +139,27 @@ def _render(entry: dict) -> str:
         if r["notes"]:
             detail = r["notes"][0]
         elif r["period_s"] is None:
-            detail = f"no repeat at or above {r['threshold']:g}"
+            detail = f"no repeat at or above {r['threshold']:.2f}"
         else:
-            detail = f"repeats every {r['period_s']:.1f}s, at or above {r['threshold']:g}"
+            detail = f"repeats every {r['period_s']:.1f}s, at or above {r['threshold']:.2f}"
         lines.append(f"  {_verdict(r['passed'])}  loop        {r['score']:.2f} ({detail})")
     if "steps" in entry:
         r = entry["steps"]
         if r["step_at_s"] is None:
-            lines.append(f"  ok    step        {r['notes'][0]}")
+            detail = r["notes"][0] if r["notes"] else "no level step measured"
+            lines.append(f"  {_verdict(r['passed'])}  step        {detail}")
         else:
             lines.append(f"  {_verdict(r['passed'])}  step        {r['step_db']:.1f} dB at "
-                         f"{r['step_at_s']:.1f}s (max {r['max_step']:g})")
-        lines.append(f"  info  range       {r['range_db']:.1f} dB   transient {r['transient_db']:.1f} dB"
-                     f"   peak {r['peak_dbtp']:.1f} dBTP")
+                         f"{r['step_at_s']:.1f}s (max {r['max_step']:.1f})")
+        lines.append(f"  info  range       {r['range_db']:.1f} dB   transient {r['transient_db']:.1f} dB   "
+                     f"peak {r['peak_dbtp']:.1f} dBTP")
     if "separation" in entry:
         r = entry["separation"]
         lines.append(f"  {_verdict(r['passed'])}  separation  {r['separation_lu']:.1f} LU "
                      f"(speech {r['speech_lkfs']:.1f}, bed {r['bed_lkfs']:.1f} LKFS; "
                      f"min {r['min_lu']:.1f}, {entry['profile']})")
-        lines.append(f"  info  peak        {r['peak_dbtp']:.1f} dBTP   speech windows {r['runs']}"
-                     f"   bed windows {r['gaps']}")
+        lines.append(f"  info  peak        {r['peak_dbtp']:.1f} dBTP   speech windows {r['runs']}   "
+                     f"bed windows {r['gaps']}")
         for w in r["warnings"]:
             lines.append(f"  warn  {w}")
     return "\n".join(lines)
@@ -137,7 +169,7 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     try:
         results = _run(args)
-    except (DecodeError, NoSpeechError) as e:
+    except (DecodeError, ValueError) as e:   # NoSpeechError and the library's argument guards are ValueErrors
         print(f"audio-bed-check: {e}", file=sys.stderr)
         return 2
     if args.json:

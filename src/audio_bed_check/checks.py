@@ -52,11 +52,19 @@ def loop_score(
     or above it, the file is a loop and fails. With no peak at the threshold, the score is the best
     value in the flaggable range and the file passes.
     """
+    if min_period <= 0:
+        raise ValueError("min_period must be positive")
+    if not 0 < threshold <= 1:
+        raise ValueError("threshold must be between 0 (exclusive) and 1")
     duration = len(samples) / sr
     if duration < 2 * min_period + 1:
         return LoopResult(0.0, None, threshold, min_period, True,
                           (f"too short to test for a repeat longer than {min_period:g}s",))
-    ac = _autocorrelation(momentary(samples, sr))
+    env = momentary(samples, sr)
+    if env.max() - env.min() < 1.0:
+        return LoopResult(0.0, None, threshold, min_period, True,
+                          ("level is flat (under 1 dB of variation); nothing to correlate",))
+    ac = _autocorrelation(env)
     n = len(ac)
     first, lo, hi = int(round(LOOP_SHORTEST_LAG / HOP)), int(round(min_period / HOP)), n // 2
     # a plain scan: a 10-minute bed is 3,000 lags, nothing next to the K-weighting
@@ -116,12 +124,11 @@ def level_steps(samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: fl
                            (f"too short to measure level steps (needs at least {need:g}s)",))
     range_db = float(env.max() - env.min())
     transient = float(np.abs(np.diff(env)).max())
-    step, at = 0.0, None
+    boundaries = range(STEP_SIDE, len(env) - STEP_SIDE + 1)
     # a plain scan: a 10-minute bed is 1,200 boundaries, nothing next to the K-weighting
-    for i in range(STEP_SIDE, len(env) - STEP_SIDE + 1):
-        d = abs(float(env[i:i + STEP_SIDE].mean() - env[i - STEP_SIDE:i].mean()))
-        if d > step:
-            step, at = d, (skip + i) * STEP_BLOCK
+    steps = [abs(float(env[i:i + STEP_SIDE].mean() - env[i - STEP_SIDE:i].mean())) for i in boundaries]
+    worst = int(np.argmax(steps))
+    step, at = steps[worst], (skip + boundaries[worst]) * STEP_BLOCK
     return StepsResult(step, at, range_db, transient, peak, max_step, step <= max_step)
 
 

@@ -1,3 +1,6 @@
+import numpy as np
+import pytest
+
 from audio_bed_check.checks import LoopResult, loop_score
 from tests.synth import SR, textured, tile
 
@@ -57,3 +60,17 @@ def test_a_short_file_is_reported_not_judged():
 def test_threshold_is_recorded():
     r = loop_score(textured(20, 6), SR, threshold=0.5)
     assert r.threshold == 0.5 and r.min_period_s == 6.0
+
+
+def test_a_flat_bed_passes_with_a_note():
+    r = loop_score(np.zeros(20 * SR, dtype=np.float32), SR)
+    assert r.passed and r.period_s is None
+    assert r.notes == ("level is flat (under 1 dB of variation); nothing to correlate",)
+
+
+def test_bad_arguments_raise_even_on_a_short_file():
+    short = np.zeros(SR, dtype=np.float32)
+    with pytest.raises(ValueError, match="min_period must be positive"):
+        loop_score(short, SR, min_period=0)
+    with pytest.raises(ValueError, match="threshold must be"):
+        loop_score(short, SR, threshold=1.5)

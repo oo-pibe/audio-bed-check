@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from audio_bed_check.checks import level_steps
@@ -64,3 +65,9 @@ def test_max_step_is_respected():
     x = noise(60, 6) * step_gain(60 * SR, 30.0, 5.0)
     assert level_steps(x, SR).passed
     assert not level_steps(x, SR, max_step=4.0).passed
+
+
+def test_a_flat_bed_still_reports_where_it_looked():
+    r = level_steps(np.zeros(20 * SR, dtype=np.float32), SR)
+    assert r.step_db == 0.0
+    assert isinstance(r.step_at_s, float) and r.step_at_s == 3.0

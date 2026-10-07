@@ -1,0 +1,128 @@
+"""ITU-R BS.1770-4 loudness pieces in numpy: K-weighting, block loudness, momentary series, true peak.
+
+Everything is 48 kHz only. The decoder always produces 48 kHz, and the filter coefficients are the
+standard's published 48 kHz set; refusing other rates is cheaper than getting them silently wrong.
+"""
+
+import numpy as np
+
+SR = 48000
+HOP = 0.1          # momentary hop, seconds
+WINDOW = 0.4       # momentary window, seconds
+FLOOR_LKFS = -100.0
+
+# BS.1770-4 Annex 1, 48 kHz: (b0, b1, b2, a1, a2). Stage 1 is the high shelf, stage 2 the RLB high pass.
+_STAGE1 = (1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585)
+_STAGE2 = (1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621)
+_TAPS = 4096       # the slowest pole has radius ~0.995; 0.995**4096 is ~1e-9, so truncation is inaudible
+
+_kernel_cache: np.ndarray | None = None
+
+
+def _impulse_response(n: int = _TAPS) -> np.ndarray:
+    """Run a unit impulse through both biquads (a tiny Python loop; cached after the first call)."""
+    x = np.zeros(n)
+    x[0] = 1.0
+    for b0, b1, b2, a1, a2 in (_STAGE1, _STAGE2):
+        y = np.zeros(n)
+        for i in range(n):
+            y[i] = b0 * x[i]
+            if i >= 1:
+                y[i] += b1 * x[i - 1] - a1 * y[i - 1]
+            if i >= 2:
+                y[i] += b2 * x[i - 2] - a2 * y[i - 2]
+        x = y
+    return x
+
+
+def _kernel() -> np.ndarray:
+    global _kernel_cache
+    if _kernel_cache is None:
+        _kernel_cache = _impulse_response()
+    return _kernel_cache
+
+
+def _check_rate(sr: int) -> None:
+    if sr != SR:
+        raise ValueError("resample to 48 kHz")
+
+
+def fft_convolve(x: np.ndarray, h: np.ndarray, block: int = 1 << 17, full: bool = False) -> np.ndarray:
+    """Linear convolution of x with h by overlap-add, so long files stay in memory.
+
+    Truncated to len(x) (a causal filter's output) unless full=True, which returns all len(x)+len(h)-1.
+    """
+    n, m = len(x), len(h)
+    size = 1
+    while size < block + m - 1:
+        size <<= 1
+    spectrum = np.fft.rfft(h, size)
+    out = np.zeros(n + m - 1)
+    for start in range(0, n, block):
+        seg = x[start:start + block]
+        piece = np.fft.irfft(np.fft.rfft(seg, size) * spectrum, size)[:len(seg) + m - 1]
+        out[start:start + len(piece)] += piece
+    return out if full else out[:n]
+
+
+def k_weight(samples: np.ndarray, sr: int) -> np.ndarray:
+    """The K-weighted signal (float64, same length)."""
+    _check_rate(sr)
+    return fft_convolve(np.asarray(samples, dtype=np.float64), _kernel())
+
+
+def block_loudness(weighted: np.ndarray, sr: int, window: float, hop: float) -> np.ndarray:
+    """Loudness of an already K-weighted signal per block, in LKFS; floored at -100."""
+    _check_rate(sr)
+    x = np.asarray(weighted, dtype=np.float64)
+    w, h = int(round(window * sr)), int(round(hop * sr))
+    if len(x) < w:
+        return np.zeros(0)
+    starts = np.arange(0, len(x) - w + 1, h)
+    cumulative = np.concatenate([[0.0], np.cumsum(x * x)])
+    mean_square = (cumulative[starts + w] - cumulative[starts]) / w
+    with np.errstate(divide="ignore"):
+        lkfs = -0.691 + 10 * np.log10(mean_square)
+    return np.maximum(lkfs, FLOOR_LKFS)
+
+
+def momentary(samples: np.ndarray, sr: int) -> np.ndarray:
+    """BS.1770 momentary loudness: 400 ms windows every 100 ms."""
+    return block_loudness(k_weight(samples, sr), sr, WINDOW, HOP)
+
+
+_UP = 4             # oversampling ratio for true peak, per BS.1770-4
+_INTERP_HALF = 64   # kernel half-length in the oversampled domain: 16 input samples of context each side
+
+
+def _interp_kernel() -> np.ndarray:
+    """Windowed-sinc low-pass for a 4x zero-stuffed signal: cutoff at the original Nyquist, DC gain 4."""
+    n = np.arange(-_INTERP_HALF, _INTERP_HALF + 1)
+    h = np.sinc(n / _UP) * np.kaiser(len(n), 9.0)
+    return h * (_UP / h.sum())
+
+
+def true_peak(samples: np.ndarray, sr: int, block: int = 1 << 16) -> float:
+    """Peak of the 4x oversampled waveform, in dBTP.
+
+    Zero-stuff, then a linear (never circular) windowed-sinc interpolation by overlap-add, so the
+    answer does not depend on `block` and the file counts as silent beyond its ends.
+    """
+    _check_rate(sr)
+    x = np.asarray(samples, dtype=np.float64)
+    n = len(x)
+    if n == 0:
+        return -99.0
+    h = _interp_kernel()
+    margin = _INTERP_HALF // _UP + 1      # input samples of context a kept sample needs on each side
+    peak = 0.0
+    for start in range(0, n, block):
+        end = min(n, start + block)
+        a, b = max(0, start - margin), min(n, end + margin)
+        up = np.zeros((b - a) * _UP)
+        up[::_UP] = x[a:b]
+        y = fft_convolve(up, h, full=True)  # y[j] is the interpolant centred on up[j - _INTERP_HALF]
+        lo = (start - a) * _UP + _INTERP_HALF
+        hi = (end - a) * _UP + _INTERP_HALF
+        peak = max(peak, float(np.abs(y[lo:hi]).max()))
+    return 20 * np.log10(peak) if peak > 0 else -99.0

@@ -107,6 +107,12 @@ def gain(x: np.ndarray, db: float) -> np.ndarray:
     return (x * 10 ** (db / 20)).astype(np.float32)
 
 
+def textured(seconds: float, seed: int = 0, sr: int = SR) -> np.ndarray:
+    """White noise under an AR(1) gain: bed-like texture with no repeat."""
+    x = noise(seconds, seed, sr=sr)
+    return (x * ar1_envelope(len(x), seed, sr=sr)).astype(np.float32)
+
+
 def write_wav(path, x: np.ndarray, sr: int = SR, clip: bool = False) -> None:
     """16-bit mono WAV, the one format every ffmpeg build and the stdlib both read.
 

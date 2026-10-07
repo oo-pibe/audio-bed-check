@@ -1,10 +1,5 @@
 from audio_bed_check.checks import LoopResult, loop_score
-from tests.synth import SR, ar1_envelope, noise, tile
-
-
-def textured(seconds, seed):
-    x = noise(seconds, seed)
-    return x * ar1_envelope(len(x), seed)
+from tests.synth import SR, textured, tile
 
 
 def test_a_tiled_bed_fails_with_its_repeat_length():
@@ -19,14 +14,22 @@ def test_a_crossfaded_join_is_still_a_loop():
     r = loop_score(tile(textured(12, 2), 4, crossfade=0.2), SR)
     assert not r.passed
     assert r.score > 0.85
-    assert abs(r.period_s - 11.8) < 0.3
+    assert abs(r.period_s - 11.8) < 0.15   # the crossfade shortens the period; lags resolve in 0.1 s steps
 
 
 def test_an_unrepeated_bed_passes():
     r = loop_score(textured(48, 3), SR)
     assert r.passed
     assert r.score < 0.5
+    assert r.period_s is None
     assert r.notes == ()
+
+
+def test_a_half_period_shoulder_does_not_name_the_repeat():
+    # seed 43's envelope also correlates at 1.0 s; the fundamental must still be the 2 s tile
+    r = loop_score(tile(textured(2, 43), 20), SR, min_period=1.5)
+    assert not r.passed
+    assert abs(r.period_s - 2.0) < 0.15
 
 
 def test_a_bar_length_repeat_is_a_note_not_a_failure():

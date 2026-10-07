@@ -61,9 +61,9 @@ def loop_score(
         return LoopResult(0.0, None, threshold, min_period, True,
                           (f"too short to test for a repeat longer than {min_period:g}s",))
     env = momentary(samples, sr)
-    if env.max() - env.min() < 1.0:
+    if np.ptp(env) < 0.01:   # silence or a constant tone; a steady bed still varies by tenths of a dB
         return LoopResult(0.0, None, threshold, min_period, True,
-                          ("level is flat (under 1 dB of variation); nothing to correlate",))
+                          ("level is constant; nothing to correlate",))
     ac = _autocorrelation(env)
     n = len(ac)
     first, lo, hi = int(round(LOOP_SHORTEST_LAG / HOP)), int(round(min_period / HOP)), n // 2

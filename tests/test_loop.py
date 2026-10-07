@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from audio_bed_check.checks import LoopResult, loop_score
-from tests.synth import SR, textured, tile
+from tests.synth import SR, noise, textured, tile
 
 
 def test_a_tiled_bed_fails_with_its_repeat_length():
@@ -65,7 +65,7 @@ def test_threshold_is_recorded():
 def test_a_flat_bed_passes_with_a_note():
     r = loop_score(np.zeros(20 * SR, dtype=np.float32), SR)
     assert r.passed and r.period_s is None
-    assert r.notes == ("level is flat (under 1 dB of variation); nothing to correlate",)
+    assert r.notes == ("level is constant; nothing to correlate",)
 
 
 def test_bad_arguments_raise_even_on_a_short_file():
@@ -74,3 +74,10 @@ def test_bad_arguments_raise_even_on_a_short_file():
         loop_score(short, SR, min_period=0)
     with pytest.raises(ValueError, match="threshold must be"):
         loop_score(short, SR, threshold=1.5)
+
+
+def test_a_steady_looped_bed_is_still_caught():
+    # room tone, crowd hum: the envelope moves by tenths of a dB, and a loop of it must still fail
+    r = loop_score(tile(noise(12, 7, rms_dbfs=-30.0), 4), SR)
+    assert not r.passed
+    assert abs(r.period_s - 12.0) < 0.15

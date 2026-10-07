@@ -56,7 +56,7 @@ def test_batch_keeps_going_and_reports_every_file(wavs, capsys):
 def test_a_silent_bed_renders_without_crashing(wavs, capsys):
     assert cli.main(["bed", str(wavs["silent"])]) == 0
     out = capsys.readouterr().out
-    assert "ok    loop        0.00 (level is flat" in out
+    assert "ok    loop        0.00 (level is constant; nothing to correlate)" in out
     assert "ok    step        0.0 dB at" in out
 
 

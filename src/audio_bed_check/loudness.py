@@ -135,4 +135,4 @@ def true_peak(samples: np.ndarray, sr: int, block: int = 1 << 16) -> float:
         lo = (start - a) * _UP + _INTERP_HALF
         hi = (end - a) * _UP + _INTERP_HALF
         peak = max(peak, float(np.abs(y[lo:hi]).max()))
-    return 20 * np.log10(peak) if peak > 0 else FLOOR_DBTP
+    return float(20 * np.log10(peak)) if peak > 0 else FLOOR_DBTP

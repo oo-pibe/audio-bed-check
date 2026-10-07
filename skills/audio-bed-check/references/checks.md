@@ -17,6 +17,13 @@ passes with a note, because music repeats at bar length; at or longer, it fails.
 With no peak at or above the threshold, the score shown is the best value in the flaggable range and the file
 passes.
 
+A clip repeated once to fill the file has a period longer than half its length, which the
+autocorrelation cannot score. Those lags, from half the file to the file length minus 5 s, are
+tested by the correlation of the frame-to-frame changes in the two overlapping stretches of
+envelope, with a stricter cutoff of 0.95 because short overlaps correlate by chance more easily
+(the worst of 600 generated unlooped beds scored 0.74). Changes rather than levels, because a level
+step halfway through would otherwise read as two matching halves. A file caught this way fails with the note "found by the extended-lag test".
+
 Files shorter than twice the minimum period plus a second are not judged.
 
 Calibration, on 36 ambience beds from a production video pipeline (not included in this

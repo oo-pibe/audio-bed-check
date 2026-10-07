@@ -33,6 +33,7 @@ file, no speech found in the voiceover). `--json` prints the numbers as a list o
 threshold (`--loop-threshold`, 0.75), it reports the shortest one scoring within 0.05 of the
 strongest. That is the repeat length rather than a multiple of it. A repeat of 6 seconds or longer
 (`--min-period`) fails. A shorter one is reported and passes, because music repeats at bar length.
+A clip repeated once to fill the file is caught by a second test on the overlapping halves.
 
 `steps`: half-second loudness blocks. The sustained step is the mean level two seconds after a
 boundary against two seconds before; it fails above 6 dB (`--max-step`). A bad join moves the level

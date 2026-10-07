@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from audio_bed_check.checks import LoopResult, loop_score
-from tests.synth import SR, noise, textured, tile
+from tests.synth import SR, noise, step_gain, textured, tile
 
 
 def test_a_tiled_bed_fails_with_its_repeat_length():
@@ -81,3 +81,21 @@ def test_a_steady_looped_bed_is_still_caught():
     r = loop_score(tile(noise(12, 7, rms_dbfs=-30.0), 4), SR)
     assert not r.passed
     assert abs(r.period_s - 12.0) < 0.15
+
+
+def test_a_clip_repeated_once_to_fill_the_file_is_caught():
+    r = loop_score(tile(textured(35, 11), 2)[: 60 * SR], SR)
+    assert not r.passed
+    assert abs(r.period_s - 35.0) < 0.15
+    assert r.notes == ("found by the extended-lag test: the clip was repeated once to fill the file",)
+
+
+def test_a_clean_60s_bed_passes_the_extended_lag_test():
+    r = loop_score(textured(60, 12), SR)
+    assert r.passed and r.period_s is None
+
+
+def test_a_step_halfway_is_not_read_as_a_repeat():
+    # detrended, a mid-file step leaves two matching ramps; the extended test must not see a loop
+    r = loop_score(noise(60, 3, rms_dbfs=-30.0) * step_gain(60 * SR, 30.0, 7.0), SR)
+    assert r.passed and r.period_s is None

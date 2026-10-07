@@ -58,6 +58,9 @@ never affect the exit code.
   period was found. Passes. Lower `--min-period` if you want it flagged.
 - "too short to measure level steps (needs at least 6.5s)": fewer than nine half-second blocks remain
   after the edges are dropped. Passes, with zeros.
+- "found by the extended-lag test: the clip was repeated once to fill the file": a FAIL on the loop
+  line. No repeat under half the file reached the threshold, but the two overlapping stretches at a
+  lag between half the file and the file length minus 5 s correlate at 0.95 or more.
 - "no level change anywhere": the steps check on digital silence; every boundary measures 0.0 dB,
   so no place is named. Passes.
 - "level is constant; nothing to correlate": the loop check on digital silence or a constant tone

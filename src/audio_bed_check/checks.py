@@ -12,6 +12,12 @@ LOOP_SHORTEST_LAG = 0.5
 # a loop correlates at every multiple of its period; the fundamental is the shortest peak within
 # this of the strongest, so a half-period peak cannot name the repeat
 LOOP_PEAK_TOLERANCE = 0.05
+# frames (5 s at the 100 ms hop); the least overlap the extended-lag test correlates over
+LOOP_MIN_OVERLAP = 50
+# a clip repeated once correlates at ~1.0 over its overlap; short overlaps of unlooped beds reach 0.74
+# by chance (worst of 600 generated beds), so lags past half the file need this much
+LOOP_EXTENDED_THRESHOLD = 0.95
+LOOP_EXTENDED_NOTE = "found by the extended-lag test: the clip was repeated once to fill the file"
 
 
 @dataclass(frozen=True)
@@ -27,10 +33,15 @@ class LoopResult:
     notes: tuple[str, ...] = ()
 
 
-def _autocorrelation(env: np.ndarray) -> np.ndarray:
-    """Unbiased, normalised autocorrelation of a detrended envelope, by FFT. A perfect repeat scores 1.0."""
+def _detrend(env: np.ndarray) -> np.ndarray:
+    """The envelope with its linear trend removed, so a long fade does not correlate at every lag."""
     t = np.arange(len(env))
-    env = env - np.polyval(np.polyfit(t, env, 1), t)
+    return env - np.polyval(np.polyfit(t, env, 1), t)
+
+
+def _autocorrelation(env: np.ndarray) -> np.ndarray:
+    """Unbiased, normalised autocorrelation of an already detrended envelope, by FFT. A perfect repeat
+    scores 1.0."""
     n = len(env)
     size = 1
     while size < 2 * n:
@@ -48,9 +59,13 @@ def loop_score(
 
     Finds the fundamental repeat: among the lags (0.5 s or more) where the loudness envelope's
     autocorrelation peaks at or above `threshold`, the shortest one within LOOP_PEAK_TOLERANCE of the
-    strongest. A fundamental shorter than `min_period` is music-like (a bar) and becomes a note; at
-    or above it, the file is a loop and fails. With no peak at the threshold, the score is the best
-    value in the flaggable range and the file passes.
+    strongest, searched up to half the file. A fundamental shorter than `min_period` is music-like (a
+    bar) and becomes a note; at or above it, the file is a loop and fails. With no peak at the
+    threshold, the lags from half the file to the file length minus LOOP_MIN_OVERLAP (or minus
+    `min_period`, if longer) are tested by the Pearson correlation of the frame-to-frame changes in
+    the two overlapping stretches of envelope: a clip repeated once to fill the file scores about 1.0
+    there, and at or above LOOP_EXTENDED_THRESHOLD the file fails. Otherwise the score is the best
+    autocorrelation in the flaggable range and the file passes.
     """
     if min_period <= 0:
         raise ValueError("min_period must be positive")
@@ -64,6 +79,7 @@ def loop_score(
     if np.ptp(env) < 0.01:   # silence or a constant tone; a steady bed still varies by tenths of a dB
         return LoopResult(0.0, None, threshold, min_period, True,
                           ("level is constant; nothing to correlate",))
+    env = _detrend(env)
     ac = _autocorrelation(env)
     n = len(ac)
     first, lo, hi = int(round(LOOP_SHORTEST_LAG / HOP)), int(round(min_period / HOP)), n // 2
@@ -71,6 +87,17 @@ def loop_score(
     peaks = [k for k in range(first, hi)
              if ac[k] >= threshold and ac[k] >= ac[k - 1] and ac[k] >= ac[k + 1]]
     if not peaks:
+        extended = range(hi, n - max(lo, LOOP_MIN_OVERLAP) + 1)
+        if extended:
+            # frame-to-frame changes, not levels: a step halfway would otherwise leave two matching
+            # ramps after detrending and read as a repeat. A copied clip copies its fine texture.
+            # nan_to_num: a stretch with no variation at all has no correlation, so it cannot win
+            d = np.diff(env)
+            r, k = max((float(np.nan_to_num(np.corrcoef(d[:n - 1 - k], d[k:])[0, 1], nan=-1.0)), k)
+                       for k in extended)
+            if r >= LOOP_EXTENDED_THRESHOLD and k >= lo:
+                return LoopResult(min(r, 1.0), round(k * HOP, 2), threshold, min_period, False,
+                                  (LOOP_EXTENDED_NOTE,))
         return LoopResult(min(float(ac[lo:hi].max()), 1.0), None, threshold, min_period, True)
     best = max(ac[p] for p in peaks)
     k = next(p for p in peaks if ac[p] >= best - LOOP_PEAK_TOLERANCE)

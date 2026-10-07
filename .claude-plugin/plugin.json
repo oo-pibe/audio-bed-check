@@ -1,0 +1,8 @@
+{
+  "name": "audio-bed-check",
+  "version": "0.1.0",
+  "description": "Check an audio bed for loops and level steps, and a voiceover mix for speech-over-bed separation.",
+  "author": { "name": "oo-pibe" },
+  "license": "MIT",
+  "skills": "./skills/"
+}

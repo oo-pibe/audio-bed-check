@@ -18,21 +18,31 @@ def find_ffmpeg(ffmpeg: str | None = None) -> str:
     candidate = ffmpeg or os.environ.get("AUDIO_BED_CHECK_FFMPEG") or "ffmpeg"
     resolved = shutil.which(candidate)
     if resolved is None:
+        if candidate != "ffmpeg":
+            raise DecodeError(f"ffmpeg not found at {candidate}; install it or set AUDIO_BED_CHECK_FFMPEG")
         raise DecodeError("ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG")
     return resolved
 
 
 def _samples_from_wav(data: bytes) -> np.ndarray:
-    """Samples out of a 16-bit WAV stream, as float32 in [-1, 1): everything after the `data` chunk header.
+    """Samples out of a 16-bit WAV stream, as float32 in [-1, 1): the body of the `data` chunk.
 
-    ffmpeg writes a WAV to a pipe with placeholder sizes, so the chunk length is not trusted; the
-    stream ends where the samples end.
+    Walks the RIFF chunks rather than searching for the bytes `data`, because an INFO chunk can carry
+    tag text containing that word. ffmpeg writes a WAV to a pipe with placeholder sizes, so the data
+    chunk's length is not trusted; the stream ends where the samples end.
     """
-    at = data.find(b"data", 12)
-    if at < 0 or data[:4] != b"RIFF":
+    if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
         raise DecodeError("ffmpeg returned something that is not a WAV stream")
-    body = data[at + 8:]
-    return np.frombuffer(body[: len(body) - len(body) % 2], dtype="<i2").astype(np.float32) / 32768.0
+    at = 12
+    while at + 8 <= len(data):
+        chunk, size = data[at:at + 4], int.from_bytes(data[at + 4:at + 8], "little")
+        if chunk == b"data":
+            body = data[at + 8:]
+            samples = np.frombuffer(body[: len(body) - len(body) % 2], dtype="<i2").astype(np.float32)
+            samples /= 32768.0
+            return samples
+        at += 8 + size + (size & 1)
+    raise DecodeError("ffmpeg returned something that is not a WAV stream")
 
 
 def decode(path, ffmpeg: str | None = None) -> tuple[np.ndarray, int]:
@@ -48,13 +58,15 @@ def decode(path, ffmpeg: str | None = None) -> tuple[np.ndarray, int]:
     if not os.path.exists(path):
         raise DecodeError(f"{path}: no such file")
     proc = subprocess.run(
-        [exe, "-nostdin", "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", str(SR),
-         "-c:a", "pcm_s16le", "-f", "wav", "-"],
+        [exe, "-nostdin", "-v", "error", "-i", str(path), "-map", "0:a:0", "-map_metadata", "-1",
+         "-fflags", "+bitexact", "-ac", "1", "-ar", str(SR), "-c:a", "pcm_s16le", "-f", "wav", "-"],
         capture_output=True,
     )
     if proc.returncode != 0:
         lines = proc.stderr.decode(errors="replace").strip().splitlines()
         detail = lines[-1] if lines else "no detail from ffmpeg"
+        if any("matches no streams" in line for line in lines):
+            detail = "it has no audio stream"
         raise DecodeError(f"{path}: ffmpeg could not decode it ({detail})")
     samples = _samples_from_wav(proc.stdout)
     if len(samples) == 0:

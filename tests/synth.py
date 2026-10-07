@@ -7,15 +7,23 @@ import numpy as np
 SR = 48000
 
 
+def _n(seconds: float, sr: int) -> int:
+    """Sample count for a duration, rounded, so 0.29 s is 13920 samples and not 13919."""
+    return int(round(seconds * sr))
+
+
 def noise(seconds: float, seed: int = 0, rms_dbfs: float = -20.0, sr: int = SR) -> np.ndarray:
-    """White noise at the given RMS level."""
+    """White noise at the given RMS level.
+
+    Pass distinct seeds for independent signals; two calls with the same seed are identical.
+    """
     rng = np.random.default_rng(seed)
-    x = rng.standard_normal(int(seconds * sr))
+    x = rng.standard_normal(_n(seconds, sr))
     return (x / np.sqrt((x * x).mean()) * 10 ** (rms_dbfs / 20)).astype(np.float32)
 
 
 def sine(seconds: float, freq: float, amp: float, phase: float = 0.0, sr: int = SR) -> np.ndarray:
-    t = np.arange(int(seconds * sr)) / sr
+    t = np.arange(_n(seconds, sr)) / sr
     return (amp * np.sin(2 * np.pi * freq * t + phase)).astype(np.float32)
 
 
@@ -23,6 +31,8 @@ def ar1_envelope(
     n: int, seed: int = 0, rho: float = 0.7, depth_db: float = 6.0, knot_s: float = 0.1, sr: int = SR
 ) -> np.ndarray:
     """A stationary, slowly wandering gain (linear), about depth_db peak to peak, with short memory.
+
+    n is a sample count: ar1_envelope(len(x)).
 
     AR(1) with rho=0.7 at 0.1 s knots: the correlation at a 0.5 s lag is 0.7**5 = 0.17, so the
     envelope has texture but no repeat for the loop check to find.
@@ -44,7 +54,11 @@ def tile(segment: np.ndarray, times: int, crossfade: float = 0.0, sr: int = SR) 
     """
     if crossfade <= 0:
         return np.tile(segment, times).astype(np.float32)
-    k = int(crossfade * sr)
+    k = _n(crossfade, sr)
+    if k == 0:
+        return np.tile(segment, times).astype(np.float32)
+    if k >= len(segment):
+        raise ValueError("crossfade must be shorter than the segment")
     ramp = np.linspace(0, np.pi / 2, k)
     fade_in, fade_out = np.sin(ramp), np.cos(ramp)
     out = segment.astype(np.float64)
@@ -57,7 +71,7 @@ def tile(segment: np.ndarray, times: int, crossfade: float = 0.0, sr: int = SR) 
 def step_gain(n: int, at_s: float, db: float, sr: int = SR) -> np.ndarray:
     """A hard level change at at_s: gain 1 before, 10**(db/20) after."""
     g = np.ones(n, dtype=np.float32)
-    g[int(at_s * sr):] = 10 ** (db / 20)
+    g[_n(at_s, sr):] = 10 ** (db / 20)
     return g
 
 
@@ -70,7 +84,11 @@ def swell_gain(n: int, centre_s: float, width_s: float, db: float, sr: int = SR)
 
 
 def fade_edges(x: np.ndarray, seconds: float, sr: int = SR) -> np.ndarray:
-    k = int(seconds * sr)
+    k = _n(seconds, sr)
+    if k == 0:
+        return x.astype(np.float32)
+    if 2 * k > len(x):
+        raise ValueError("fade longer than the signal")
     y = x.astype(np.float32).copy()
     y[:k] *= np.linspace(0, 1, k, dtype=np.float32)
     y[-k:] *= np.linspace(1, 0, k, dtype=np.float32)
@@ -81,7 +99,7 @@ def gated(x: np.ndarray, runs: list[tuple[float, float]], sr: int = SR) -> np.nd
     """Keep x only inside the (start, end) runs, silence elsewhere. Speech-shaped timing, noise content."""
     y = np.zeros_like(x, dtype=np.float32)
     for a, b in runs:
-        y[int(a * sr):int(b * sr)] = x[int(a * sr):int(b * sr)]
+        y[_n(a, sr):_n(b, sr)] = x[_n(a, sr):_n(b, sr)]
     return y
 
 
@@ -89,18 +107,26 @@ def gain(x: np.ndarray, db: float) -> np.ndarray:
     return (x * 10 ** (db / 20)).astype(np.float32)
 
 
-def write_wav(path, x: np.ndarray, sr: int = SR) -> None:
-    """16-bit mono WAV, the one format every ffmpeg build and the stdlib both read."""
+def write_wav(path, x: np.ndarray, sr: int = SR, clip: bool = False) -> None:
+    """16-bit mono WAV, the one format every ffmpeg build and the stdlib both read.
+
+    Raises if |x| exceeds 1.0 unless clip=True: a clipped fixture reads back flatter and quieter,
+    which shows up as a wrong loudness number, not as a fixture error.
+    """
+    peak = float(np.abs(x).max()) if len(x) else 0.0
+    if peak > 1.0 and not clip:
+        raise ValueError(f"signal peaks at {peak:.2f}; lower it or pass clip=True")
     with wave.open(str(path), "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(sr)
-        w.writeframes((np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
+        w.writeframes(np.rint(np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
 
 
 def read_wav(path) -> tuple[np.ndarray, int]:
     """Read back a 16-bit mono WAV as float32 in [-1, 1]. Used as a stand-in for decode() in CLI tests."""
     with wave.open(str(path), "rb") as w:
+        assert w.getsampwidth() == 2 and w.getnchannels() == 1, "read_wav expects 16-bit mono"
         sr = w.getframerate()
         raw = w.readframes(w.getnframes())
     return (np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32767), sr

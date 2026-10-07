@@ -5,9 +5,9 @@
 A bed is the ambience or music that sits under a voiceover or a cut. Three things go wrong with a
 rendered one that nothing in a normal pipeline measures: the file repeats itself, the level jumps
 where two pieces were joined, or the voice over it is not far enough above it to be heard without
-effort. This command checks each one and exits non-zero when it finds it.
+effort. This command measures each one and exits non-zero when one fails.
 
-It needs Python 3.10 or later and ffmpeg on PATH. It reads anything ffmpeg reads, video included.
+It needs Python 3.10 or later and ffmpeg, either on PATH or named with `--ffmpeg` or `AUDIO_BED_CHECK_FFMPEG`. It reads anything ffmpeg reads, video included.
 
 ```
 pip install audio-bed-check
@@ -19,27 +19,20 @@ audio-bed-check separation final.mp4 --vo read.wav
 ```
 ambience.wav
   FAIL  loop        0.97 (repeats every 12.0s, at or above 0.75)
-  ok    step        1.4 dB at 18.5s (max 6)
+  ok    step        1.4 dB at 18.5s (max 6.0)
   info  range       6.2 dB   transient 3.1 dB   peak -3.4 dBTP
 ```
 
-Exit 0 when every check passes, 1 when any fails, 2 when a check could not run. `--json` prints
+Exit 0 when every check passes, 1 when any fails, 2 when it could not run (a bad flag, an unreadable file, no speech found in the voiceover). `--json` prints
 the numbers as a list of objects.
 
 ## The checks
 
-**loop.** The loudness envelope's autocorrelation, by FFT. It reports the shortest repeat it finds
-and fails when that repeat is 6 seconds or longer (`--min-period`) and the score is 0.75 or higher
-(`--loop-threshold`). A shorter repeat is a note, not a failure: music repeats at bar length.
+`loop`: the autocorrelation of the loudness envelope, by FFT. Among the peaks that reach the threshold (`--loop-threshold`, 0.75), it reports the shortest one scoring within 0.05 of the strongest. That is the repeat length rather than a multiple of it. A repeat of 6 seconds or longer (`--min-period`) fails. A shorter one is reported and passes, because music repeats at bar length.
 
-**steps.** Half-second loudness blocks. The sustained step is the mean level two seconds after a
-boundary against two seconds before; it fails above 6 dB (`--max-step`). A join stays shifted. A
-crowd surge spikes and comes back, so the largest transient and the range are printed but never
-fail the file.
+`steps`: half-second loudness blocks. The sustained step is the mean level two seconds after a boundary against two seconds before; it fails above 6 dB (`--max-step`). A bad join moves the level and it stays moved. A crowd surge spikes and comes back, so the largest half-second transient and the range are printed but never fail the file.
 
-**separation.** Speech windows are found in the voiceover file, then measured in the mix and
-compared with the bed-only gaps between them. The difference, in LU, is what a listener hears.
-Profiles set the minimum: `music` 10 LU, `ambience` 15 LU, `wcag` 20 LU.
+`separation`: speech windows are found in the voiceover file, then measured in the mix and compared with the bed-only gaps between them. Each window's level is its 90th percentile of 50 ms K-weighted blocks. Both kinds of window are measured in the mix, so the figure is voice plus bed against bed, which is closer to what a listener hears than the gain on each stem. Profiles set the minimum: `music` 10 LU (the default), `ambience` 15 LU, `wcag` 20 LU.
 
 | Check | Fails when | Default | Source |
 |---|---|---|---|
@@ -54,15 +47,9 @@ Every default is a flag. The full list is in
 
 ## How well it works
 
-The loop check was calibrated on 36 stadium ambience beds from a production reel pipeline. Looped
-files scored 0.79 to 1.00, with the reported lag equal to the repeat length. Unlooped files scored
-0.11 to 0.43. Two caveats from the same set: a concourse recording with its own regular rhythm
-scored 0.605 and was missed at the 0.75 threshold, and a composed music bed scored 0.82 at its bar
-length, which is why the minimum period exists. Those files are not in this repository; the test
-suite uses generated signals with known repeats, joins and gains.
+The loop threshold comes from an earlier measurement on 36 ambience beds from a production video pipeline. Looped files scored 0.79 to 1.00, with the reported lag equal to the repeat length, and unlooped files scored 0.11 to 0.43. Two files from that set are worth knowing about. A concourse recording with its own regular rhythm scored 0.605 and was missed at 0.75. A composed music bed scored 0.82 at its bar length, which is why the minimum period exists. Those files are not in this repository, so these figures cannot be reproduced from it. The test suite uses generated signals with known repeats, joins and gains.
 
-The loudness code is ITU-R BS.1770-4 K-weighting written in numpy. The test suite checks it against
-ffmpeg's `ebur128` filter on the same file, within 0.5 LU.
+The loudness code is ITU-R BS.1770-4 K-weighting written in numpy. The test suite compares its momentary loudness with ffmpeg's `ebur128` filter on the same file (median difference under 0.1 LU, 95th percentile under 0.2 LU), and its true peak on a test tone (within 0.2 dB). These tests skip when the ffmpeg in use was built without `ebur128`.
 
 ## From Python
 
@@ -94,7 +81,7 @@ plugin:
 ## Prior art
 
 - ITU-R BS.1770-4, the loudness algorithm.
-- Rafii and Pardo, REPET, IEEE TASLP 2013: the repeating-period idea behind the loop check.
+- Rafii and Pardo, REPET, IEEE TASLP 21(1), 2013: the repeating-period idea behind the loop check.
 - Torcoli, Freke-Morin, Paulus, Simon and Shirley, "Preferred Levels for Background Ducking to
   Produce Esthetically Pleasing Audio for TV with Clear Speech", JAES 67(12), 2019,
   doi:10.17743/jaes.2019.0052: the source of the 10 LU (music) and 15 LU (ambience) floors. The
@@ -104,10 +91,8 @@ plugin:
 
 ## Origin
 
-Extracted from the video pipeline at [Road to Kickoff](https://roadtokickoff.com), where a bed that
-stepped 7 dB at two joins shipped through every automated gate and was caught by ear. The checks
-here are the measurements that were missing.
+Extracted from the video pipeline at [Road to Kickoff](https://roadtokickoff.com). A bed there stepped 7 dB at two joins, got past every automated check, and was caught by ear. This tool measures the things those checks did not.
 
-## Licence
+## License
 
 MIT.

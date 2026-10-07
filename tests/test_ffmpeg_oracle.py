@@ -8,7 +8,7 @@ import pytest
 
 from audio_bed_check.decode import DecodeError, find_ffmpeg
 from audio_bed_check.loudness import HOP, WINDOW, momentary, true_peak
-from tests.synth import SR, noise, read_wav, write_wav
+from tests.synth import SR, fade, noise, read_wav, sine, write_wav
 
 
 def _ffmpeg_with_ebur128() -> str | None:
@@ -38,6 +38,7 @@ def ebur128(path) -> tuple[np.ndarray, np.ndarray, float, float]:
         text=True,
     )
     log = proc.stderr
+    assert proc.returncode == 0, log[-2000:]
     frames = re.findall(r"t:\s*([\d.]+)\s+TARGET:.*?M:\s*(-?[\d.]+)", log)
     times = np.array([float(t) for t, _ in frames])
     m = np.array([float(v) for _, v in frames])
@@ -48,11 +49,11 @@ def ebur128(path) -> tuple[np.ndarray, np.ndarray, float, float]:
 
 @pytest.fixture(scope="module")
 def tone_file(tmp_path_factory):
-    # white noise with a gentle 1 dB sinusoidal modulation at 0.25 Hz: a frame offset of 0.1 s moves the
-    # level by at most 0.16 dB, so the comparison checks timing as well as value
+    # white noise under a 6 dB peak-to-peak sinusoidal modulation at 1 Hz: a one-frame (0.1 s) offset moves
+    # the momentary reading by about 1 dB (median), far outside the bound, so the comparison checks timing too
     x = noise(20, 7, rms_dbfs=-20.0)
     t = np.arange(len(x)) / SR
-    x = x * 10 ** (np.sin(2 * np.pi * 0.25 * t) * 0.5 / 20)
+    x = x * 10 ** (np.sin(2 * np.pi * 1.0 * t) * 3.0 / 20)
     path = tmp_path_factory.mktemp("oracle") / "tone.wav"
     write_wav(path, x)
     return path
@@ -67,8 +68,8 @@ def test_momentary_matches_ffmpeg(tone_file):
     idx = np.round((times - WINDOW) / HOP).astype(int)
     keep = (idx >= 0) & (idx < len(ours)) & (theirs > -70)
     diff = np.abs(ours[idx[keep]] - theirs[keep])
-    assert np.median(diff) < 0.5
-    assert np.percentile(diff, 95) < 1.0
+    assert np.median(diff) < 0.1  # aligned, the difference is ffmpeg's one-decimal print rounding
+    assert np.percentile(diff, 95) < 0.2
 
 
 def test_integrated_matches_ffmpeg_on_a_stationary_signal(tone_file):
@@ -79,7 +80,18 @@ def test_integrated_matches_ffmpeg_on_a_stationary_signal(tone_file):
     assert abs((-0.691 + 10 * np.log10(mean_square)) - integrated) < 0.5
 
 
-def test_true_peak_matches_ffmpeg(tone_file):
-    _, _, _, peak = ebur128(tone_file)
-    samples, sr = read_wav(tone_file)
-    assert abs(true_peak(samples, sr) - peak) < 0.5
+@pytest.fixture(scope="module")
+def peak_file(tmp_path_factory):
+    # fs/4 sine at 45 degrees: every sample sits 3.01 dB under the true peak of 0.5 (-6.02 dBTP), so a
+    # true_peak that returned the sample peak would miss by 3 dB; wideband noise cannot tell the two apart
+    path = tmp_path_factory.mktemp("oracle") / "peak.wav"
+    write_wav(path, fade(sine(5, 12000, 0.5, phase=np.pi / 4)))
+    return path
+
+
+def test_true_peak_matches_ffmpeg(peak_file):
+    _, _, _, peak = ebur128(peak_file)
+    samples, sr = read_wav(peak_file)
+    assert abs(true_peak(samples, sr) - peak) < 0.2
+    # the oracle itself sees the inter-sample peak
+    assert peak > 20 * np.log10(np.abs(samples).max()) + 2.5

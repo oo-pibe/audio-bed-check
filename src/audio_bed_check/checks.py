@@ -122,3 +122,95 @@ def level_steps(samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: fl
         if d > step:
             step, at = d, (skip + i) * STEP_BLOCK
     return StepsResult(step, at, range_db, transient, peak, max_step, step <= max_step)
+
+
+GATE_HOP = 0.02      # seconds; RMS resolution for finding speech in the voiceover
+MIN_RUN = 0.25       # seconds; shortest stretch above the gate that counts as speech
+GUARD = 0.25         # seconds trimmed from each end of a gap, so tails of speech do not leak in
+MIN_GAP = 0.4        # seconds; shortest usable bed-only window
+LEVEL_BLOCK = 0.05   # seconds; fine enough that a block never straddles the edge of a 250 ms run
+
+
+class NoSpeechError(ValueError):
+    """The separation check could not run: no speech windows, or no gaps between them."""
+
+
+@dataclass(frozen=True)
+class SeparationResult:
+    separation_lu: float
+    speech_lkfs: float
+    bed_lkfs: float
+    runs: int
+    gaps: int
+    peak_dbtp: float
+    min_lu: float
+    passed: bool
+    warnings: tuple[str, ...] = ()
+
+
+def speech_runs(vo: np.ndarray, sr: int, gate_dbfs: float = -44.0) -> list[tuple[float, float]]:
+    """(start, end) seconds of every stretch of the voiceover above the gate for at least MIN_RUN."""
+    x = np.asarray(vo, dtype=np.float64)
+    h = int(round(GATE_HOP * sr))
+    blocks = len(x) // h
+    if blocks == 0:
+        return []
+    rms = np.sqrt((x[:blocks * h].reshape(blocks, h) ** 2).mean(axis=1))
+    with np.errstate(divide="ignore"):
+        loud = 20 * np.log10(rms) > gate_dbfs
+    runs, start = [], None
+    for i, on in enumerate(loud):
+        if on and start is None:
+            start = i
+        elif not on and start is not None:
+            if (i - start) * GATE_HOP >= MIN_RUN:
+                runs.append((round(start * GATE_HOP, 2), round(i * GATE_HOP, 2)))
+            start = None
+    if start is not None and (blocks - start) * GATE_HOP >= MIN_RUN:
+        runs.append((round(start * GATE_HOP, 2), round(blocks * GATE_HOP, 2)))
+    return runs
+
+
+def gaps_between(runs: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Bed-only windows: the space between consecutive runs, trimmed by GUARD, kept if MIN_GAP or longer."""
+    gaps = []
+    for (_, end), (start, _) in zip(runs, runs[1:], strict=False):
+        a, b = end + GUARD, start - GUARD
+        if b - a >= MIN_GAP:
+            gaps.append((round(a, 2), round(b, 2)))
+    return gaps
+
+
+def _window_level(blocks: np.ndarray, t0: float, t1: float) -> float | None:
+    seg = blocks[int(t0 / LEVEL_BLOCK):int(t1 / LEVEL_BLOCK)]
+    return float(np.percentile(seg, 90)) if len(seg) else None
+
+
+def separation(vo: np.ndarray, mix: np.ndarray, sr: int, *, min_lu: float = 10.0, gate_dbfs: float = -44.0,
+               vo_offset: float = 0.0) -> SeparationResult:
+    """Is the voice on top of the bed?
+
+    Speech windows come from the voiceover on its own; each is measured in the MIX (voice plus bed)
+    and compared with the bed-only gaps between them. The 90th percentile per window, so a breath
+    inside a run does not drag the speech figure down. The result is what a listener hears, which is
+    also what WCAG G56 describes, not the ratio of the two stems.
+    """
+    runs = speech_runs(vo, sr, gate_dbfs)
+    if not runs:
+        raise NoSpeechError(f"no speech found in the voiceover above {gate_dbfs:g} dBFS")
+    gaps = gaps_between(runs)
+    if not gaps:
+        raise NoSpeechError("the voiceover has no gap of 0.4s or more between speech runs, "
+                            "so there is no bed-only window to compare against")
+    blocks = block_loudness(k_weight(mix, sr), sr, LEVEL_BLOCK, LEVEL_BLOCK)
+    speech = [v for v in (_window_level(blocks, a + vo_offset, b + vo_offset) for a, b in runs)
+              if v is not None]
+    bed = [v for v in (_window_level(blocks, a + vo_offset, b + vo_offset) for a, b in gaps) if v is not None]
+    if not speech or not bed:
+        raise NoSpeechError("the voiceover's speech windows fall outside the mix; check --vo-offset")
+    speech_lkfs, bed_lkfs = float(np.mean(speech)), float(np.mean(bed))
+    sep = speech_lkfs - bed_lkfs
+    peak = true_peak(mix, sr)
+    warnings = ("mix true peak above -1 dBTP",) if peak > -1.0 else ()
+    return SeparationResult(sep, speech_lkfs, bed_lkfs, len(runs), len(gaps), peak, min_lu, sep >= min_lu,
+                            warnings)

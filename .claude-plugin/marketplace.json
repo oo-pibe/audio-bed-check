@@ -1,5 +1,6 @@
 {
   "name": "audio-bed-check",
+  "description": "Check an audio bed for loops and level steps, and a voiceover mix for speech-over-bed separation.",
   "owner": { "name": "oo-pibe" },
   "plugins": [
     {

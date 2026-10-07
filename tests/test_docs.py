@@ -13,8 +13,10 @@ SRC = ROOT / "src" / "audio_bed_check"
 MESSAGES = [
     "too short to test for a repeat longer than", "not flagged", "too short to measure level steps",
     "nothing to correlate", "min_period must be positive", "threshold must be between", "edge must be >= 0",
-    "no speech found in the voiceover above", "s or more between speech runs",
-    "fall outside the mix; check --vo-offset",
+    "no speech found in the voiceover above", "the voiceover has no gap of", "s or more between speech runs",
+    "window(s) fall outside the mix", "speech windows fall outside the mix",
+    "hop must be at least one sample", "must be a finite number, got", "must be a positive number, got",
+    "must be zero or more, got", "must be between 0 (exclusive) and 1, got",
     "mix true peak above -1 dBTP", "ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG",
     "no such file", "ffmpeg could not decode it", "it has no audio stream", "ffmpeg not found at",
     "decoded to no audio", "not a WAV stream", "resample to 48 kHz",
@@ -39,12 +41,24 @@ def test_skill_frontmatter():
     assert len(read(SKILL / "SKILL.md").splitlines()) <= 250
 
 
+def _flags(parser):
+    for action in parser._actions:
+        yield from (s for s in action.option_strings if s.startswith("--"))
+        for sub in (action.choices or {}).values() if hasattr(action, "choices") and action.choices else []:
+            if hasattr(sub, "_actions"):
+                yield from _flags(sub)
+
+
 def test_every_flag_is_documented():
-    flags = set(re.findall(r'add_argument\("(--[a-z-]+)"', read(SRC / "cli.py")))
+    from audio_bed_check.cli import build_parser
+
+    flags = set(_flags(build_parser()))
     assert len(flags) >= 10
     reference = read(SKILL / "references" / "cli.md")
     for flag in flags:
-        assert flag in reference, f"references/cli.md does not mention {flag}"
+        assert re.search(rf"(?<![\w-]){re.escape(flag)}(?![\w-])", reference), (
+            f"references/cli.md does not mention {flag}"
+        )
 
 
 def test_every_message_is_in_source_and_explained():
@@ -53,6 +67,15 @@ def test_every_message_is_in_source_and_explained():
     for message in MESSAGES:
         assert message in source, f'"{message}" is no longer in src/: update MESSAGES and references/cli.md'
         assert message in reference, f'references/cli.md does not explain "{message}"'
+
+
+def test_every_raised_message_has_a_fragment():
+    pattern = re.compile(r'(?:Error|ArgumentTypeError)\(\s*f?"([^"{]+)')
+    for path in SRC.glob("*.py"):
+        for literal in pattern.findall(read(path)):
+            assert any(fragment in literal for fragment in MESSAGES), (
+                f'{path.name}: no MESSAGES fragment covers "{literal}"'
+            )
 
 
 def test_relative_links_resolve():

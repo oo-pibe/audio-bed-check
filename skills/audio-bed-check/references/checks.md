@@ -1,24 +1,27 @@
 # The three checks
 
 All measurements use ITU-R BS.1770-4 K-weighting, computed in numpy at 48 kHz (files are decoded to
-48 kHz mono by ffmpeg). Levels are LKFS; differences between levels are LU.
+48 kHz mono by ffmpeg). Levels are LKFS; differences between levels are LU; the steps check reports its figures in dB.
 
 ## loop
 
 Envelope: momentary loudness, 400 ms windows every 100 ms, linear trend removed. Autocorrelation by
 FFT, unbiased and normalised so an exact repeat scores 1.0.
 
-The repeat reported is the shortest lag of 0.5 s or more where the autocorrelation peaks at or above
-`--loop-threshold` (0.75). If that lag is under `--min-period` (6 s) the file passes with a note:
-music repeats at bar length. If it is at or above, the file fails. With no peak above the threshold,
+The repeat reported is the fundamental: among the lags of 0.5 s or more where the autocorrelation is
+a local peak at or above `--loop-threshold` (0.75), the shortest one within 0.05 of the strongest. A
+loop correlates at every multiple of its period at about the same height, so this names the period
+rather than a half-period peak. If that fundamental is shorter than `--min-period` (6 s) the file
+passes with a note, because music repeats at bar length; at or longer, it fails. With no peak above the threshold,
 the score shown is the best value in the flaggable range and the file passes.
 
 Files shorter than twice the minimum period plus a second are not judged.
 
-Calibration, on 36 stadium ambience beds from a production reel pipeline (not included in this
-repository): looped files scored 0.79 to 1.00 with the lag equal to the repeat length; unlooped
-files 0.11 to 0.43; one concourse recording with its own regular rhythm scored 0.605 and was missed
-at 0.75; a composed music bed scored 0.82 at its bar length, which the minimum period now keeps out.
+Calibration, on 36 ambience beds from a production video pipeline (not included in this
+repository): looped files scored 0.79 to 1.00 with the lag equal to the repeat length. Unlooped
+files scored 0.11 to 0.43. One concourse recording with its own regular rhythm scored 0.605 and was
+missed at 0.75. A composed music bed scored 0.82 at its bar length; the 6 s minimum period keeps
+that out.
 
 Method: the beat-spectrum idea in Rafii and Pardo, "REpeating Pattern Extraction Technique (REPET):
 A Simple Method for Music/Voice Separation", IEEE Transactions on Audio, Speech, and Language
@@ -37,9 +40,10 @@ seconds (0.75, rounded up to whole blocks) dropped so a fade is not read as a ju
   comes back, and blocking on that would flatten exactly the recordings worth keeping.
 - `peak`: true peak, 4x oversampled, dBTP. A bed near 0 dBTP has no headroom under a mix.
 
-Needs at least 6.5 seconds of audio (nine half-second blocks after the edges are dropped). It
-cannot see a step within about 2.75 s of either end: the dropped edge plus the two-second run-up.
-A join that close to an edge still shows in `range` and `transient`.
+Needs at least 6.5 seconds of audio at the default edge (nine half-second blocks after the edges are
+dropped; the message states the figure for the edge in use). A join less than 3 s from either end
+(the edge rounded up to 1 s, plus the 2 s run-up) reads smaller than it is, about half its height at
+2 s from the end. Inside the dropped edge it is not seen at all, not even in `range` or `transient`.
 
 ## separation
 
@@ -54,8 +58,8 @@ Inputs: the voiceover on its own and the rendered mix.
 
 This is voice-plus-bed against bed, which is what a listener hears and what WCAG describes, not the
 ratio of the two stems. It is also a K-weighted figure: a voice and a bed with different spectra
-measure by their loudness, not their sample gain (a band-limited voice placed +10 dB over white
-noise in the sample domain measured about 8.3 LU, because K-weighting favours the brighter bed).
+measure by their loudness, not their sample gain: a voice with less high-frequency content than the
+bed measures lower than the gain that was applied to it.
 
 Profiles and where their numbers come from:
 

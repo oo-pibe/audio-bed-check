@@ -55,7 +55,7 @@ def test_batch_keeps_going_and_reports_every_file(wavs, capsys):
     assert cli.main(["bed", str(wavs["stepped"]), str(wavs["clean"])]) == 1
     out = capsys.readouterr().out
     assert str(wavs["stepped"]) in out and str(wavs["clean"]) in out
-    assert "FAIL  step        7.0 dB at 30.0s (max 6.0)" in out
+    assert "FAIL  step        7.04 dB at 30.0s (max 6.00)" in out
     assert out.count("ok    loop") == 2 and out.count("ok    step") == 1
 
 
@@ -93,13 +93,13 @@ def test_separation_passes_at_music_and_fails_at_wcag(wavs, capsys):
     assert "ok    separation" in capsys.readouterr().out
     assert cli.main(["separation", str(wavs["mix"]), "--vo", str(wavs["vo"]), "--profile", "wcag"]) == 1
     out = capsys.readouterr().out
-    assert "FAIL  separation" in out and "min 20.0, wcag)" in out
+    assert "FAIL  separation" in out and "min 20.00, wcag)" in out
 
 
 def test_min_separation_overrides_and_says_so(wavs, capsys):
     assert cli.main(["separation", str(wavs["mix"]), "--vo", str(wavs["vo"]), "--profile", "wcag",
                      "--min-separation", "5"]) == 0
-    assert "min 5.0, --min-separation)" in capsys.readouterr().out
+    assert "min 5.00, --min-separation)" in capsys.readouterr().out
     assert cli.main(["separation", str(wavs["mix"]), "--vo", str(wavs["vo"]),
                      "--min-separation", "5", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)[0]["profile"] == "--min-separation"
@@ -225,3 +225,23 @@ def test_a_program_that_is_not_ffmpeg_cannot_decode(tmp_path, capsys):
     write_wav(bed, textured(5, 1))
     assert cli.main(["loop", str(bed), "--ffmpeg", ls]) == 2
     assert f"  error {bed}: ffmpeg could not decode it (" in capsys.readouterr().out
+
+
+def test_values_near_zero_print_as_zero_not_minus_zero():
+    from audio_bed_check.checks import SeparationResult
+    r = SeparationResult(-0.004, -0.0049, 0.004, 5, 4, -0.001, 10.0, False)
+    out = cli._result(r)
+    assert out["separation_lu"] == 0.0 and out["speech_lkfs"] == 0.0 and out["bed_lkfs"] == 0.0
+    assert all(str(v) != "-0.0" for v in out.values())
+    line = cli._render({"file": "m.wav", "profile": "music", "separation": out})
+    assert "-0.0" not in line
+    assert "separation  0.00 LU (speech 0.00, bed 0.00 LKFS; min 10.00, music)" in line
+    assert cli._result(SeparationResult(-0.006, 0, 0, 1, 1, 0.0, 10.0, False))["separation_lu"] == -0.01
+
+
+def test_step_and_separation_print_two_decimals(wavs, capsys):
+    cli.main(["separation", str(wavs["mix"]), "--vo", str(wavs["vo"])])
+    import re
+    two = r"-?\d+\.\d\d"
+    line = rf"separation  {two} LU \(speech {two}, bed {two} LKFS; min 10\.00, music\)"
+    assert re.search(line, capsys.readouterr().out)

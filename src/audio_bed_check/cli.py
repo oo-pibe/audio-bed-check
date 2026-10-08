@@ -97,9 +97,14 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _round(value: float) -> float:
+    """2 decimals, and anything within 0.005 of zero is 0.0, so nothing prints as -0.0 or -0.00."""
+    return 0.0 if abs(value) < 0.005 else round(value, 2)
+
+
 def _result(r) -> dict:
     """A result as a dict with floats rounded to 2 decimals; the dataclasses keep full precision."""
-    return {k: round(v, 2) if isinstance(v, float) else v for k, v in dataclasses.asdict(r).items()}
+    return {k: _round(v) if isinstance(v, float) else v for k, v in dataclasses.asdict(r).items()}
 
 
 def _run(args) -> list[dict]:
@@ -155,15 +160,15 @@ def _render(entry: dict) -> str:
             detail = r["notes"][0] if r["notes"] else "no level step measured"
             lines.append(f"  {_verdict(r['passed'])}  step        {detail}")
         else:
-            lines.append(f"  {_verdict(r['passed'])}  step        {r['step_db']:.1f} dB at "
-                         f"{r['step_at_s']:.1f}s (max {r['max_step']:.1f})")
+            lines.append(f"  {_verdict(r['passed'])}  step        {r['step_db']:.2f} dB at "
+                         f"{r['step_at_s']:.1f}s (max {r['max_step']:.2f})")
         lines.append(f"  info  range       {r['range_db']:.1f} dB   transient {r['transient_db']:.1f} dB   "
                      f"peak {r['peak_dbtp']:.1f} dBTP")
     if "separation" in entry:
         r = entry["separation"]
-        lines.append(f"  {_verdict(r['passed'])}  separation  {r['separation_lu']:.1f} LU "
-                     f"(speech {r['speech_lkfs']:.1f}, bed {r['bed_lkfs']:.1f} LKFS; "
-                     f"min {r['min_lu']:.1f}, {entry['profile']})")
+        lines.append(f"  {_verdict(r['passed'])}  separation  {r['separation_lu']:.2f} LU "
+                     f"(speech {r['speech_lkfs']:.2f}, bed {r['bed_lkfs']:.2f} LKFS; "
+                     f"min {r['min_lu']:.2f}, {entry['profile']})")
         lines.append(f"  info  peak        {r['peak_dbtp']:.1f} dBTP   speech windows {r['runs']}   "
                      f"bed windows {r['gaps']}")
         for w in r["warnings"]:

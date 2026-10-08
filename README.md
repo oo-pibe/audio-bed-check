@@ -20,7 +20,7 @@ audio-bed-check separation final.mp4 --vo read.wav
 ```
 ambience.wav
   FAIL  loop        0.97 (repeats every 12.0s, at or above 0.75)
-  ok    step        1.4 dB at 18.5s (max 6.0)
+  ok    step        1.42 dB at 18.5s (max 6.00)
   info  range       6.2 dB   transient 3.1 dB   peak -3.4 dBTP
 ```
 

@@ -19,7 +19,7 @@ audio-bed-check separation final.mp4 --vo read.wav
 
 ```
 ambience.wav
-  FAIL  loop        0.97 (repeats every 12.0s, at or above 0.75)
+  FAIL  loop        1.00 (repeats every 12.0s, at or above 0.90)
   ok    step        1.42 dB at 18.5s (max 6.00)
   info  range       6.2 dB   transient 3.1 dB   peak -3.4 dBTP
 ```
@@ -29,11 +29,13 @@ file, no speech found in the voiceover). `--json` prints the numbers as a list o
 
 ## The checks
 
-`loop`: the autocorrelation of the loudness envelope, by FFT. Among the peaks that reach the
-threshold (`--loop-threshold`, 0.75), it reports the shortest one scoring within 0.05 of the
-strongest. That is the repeat length rather than a multiple of it. A repeat of 6 seconds or longer
-(`--min-period`) fails. A shorter one is reported and passes, because music repeats at bar length.
-A clip repeated once to fill the file is caught by a second test on the overlapping halves.
+`loop`: the frame-to-frame changes of the loudness envelope, correlated with themselves at every
+lag over the best-matching 10 s window. A copied clip copies its texture, so a loop scores near 1.0
+even when only part of the file repeats, or it fades out, or each repeat sits at a different gain.
+Among the peaks that reach the threshold (`--loop-threshold`, 0.9), it reports the shortest one
+scoring within 0.05 of the strongest. That is the repeat length rather than a multiple of it. A
+repeat of 6 seconds or longer (`--min-period`) fails. A shorter one is reported and passes, because
+music repeats at bar length.
 
 `steps`: half-second loudness blocks. The sustained step is the mean level two seconds after a
 boundary against two seconds before; it fails above 6 dB (`--max-step`). A bad join moves the level
@@ -48,7 +50,7 @@ a listener hears than the gain on each stem. Profiles set the minimum: `music` 1
 
 | Check | Fails when | Default | Source |
 |---|---|---|---|
-| loop | repeat score at or above | 0.75, repeats of 6 s or longer | calibration below |
+| loop | repeat score at or above | 0.9, repeats of 6 s or longer | validation below |
 | steps | sustained step above | 6 dB | production use |
 | separation, music | voice less than | 10 LU above bed | Torcoli et al., JAES 2019 |
 | separation, ambience | voice less than | 15 LU above bed | Torcoli et al., JAES 2019 |
@@ -59,13 +61,13 @@ Every default is a flag. The full list is in
 
 ## How well it works
 
-The loop threshold comes from an earlier measurement on 36 ambience beds from a production video
-pipeline. Looped files scored 0.79 to 1.00, with the reported lag equal to the repeat length, and
-unlooped files scored 0.11 to 0.43. Two files from that set are worth knowing about. A concourse
-recording with its own regular rhythm scored 0.605 and was missed at 0.75. A composed music bed
-scored 0.82 at its bar length, which is why the minimum period exists. Those files are not in this
-repository, so these figures cannot be reproduced from it. The test suite uses generated signals
-with known repeats, joins and gains.
+The loop method was rebuilt before release; the earlier calibration figures no longer describe it.
+It is validated on generated signals. 600 unlooped beds of 30 to 600 seconds produced no failures,
+and the worst scored 0.75, 0.15 under the 0.9 threshold. Loops under fades, in part of a file,
+with crossfaded joins or at changing gain all failed with the right period, the lowest at 0.97. A
+gain cycle with nothing under it, such as a steady tremolo or the same swell twice on room tone,
+reads as a loop; the details are in
+[references/checks.md](https://github.com/oo-pibe/audio-bed-check/blob/main/skills/audio-bed-check/references/checks.md).
 
 The loudness code is ITU-R BS.1770-4 K-weighting written in numpy. The test suite compares its
 momentary loudness with ffmpeg's `ebur128` filter on the same file (median difference under 0.1 LU,

@@ -22,10 +22,11 @@ ffmpeg, unreadable file, no speech found). Add `--json` to get the numbers as a 
 
 ## Reading the result
 
-- `loop`: score is the autocorrelation of the loudness envelope at the repeat it found; 1.0 is an
-  exact repeat. Fails at 0.75 or above when the repeat is at or longer than `--min-period` (6 s). A
-  shorter repeat is reported as a note, because music repeats at bar length and that is not a loop.
-  A clip repeated once to fill the file is caught by a second test on the overlapping halves.
+- `loop`: score is the correlation of the level's frame-to-frame changes at the repeat it found,
+  over the best-matching 10 s window; 1.0 is an exact repeat. Fails at 0.9 or above when the repeat
+  is at or longer than `--min-period` (6 s). A shorter repeat is reported as a note, because music
+  repeats at bar length and that is not a loop. A loop in part of the file, under a fade or at
+  changing gain is still found; a repeat longer than the file minus 10 s is not.
 - `steps`: fails on a sustained step above `--max-step` (6 dB), the mean level 2 s after a boundary
   against 2 s before. Range and the largest half-second transient are printed for information only;
   a crowd surge is content, a join is a fault.

@@ -7,35 +7,41 @@ The steps check reports its figures in dB.
 
 ## loop
 
-Envelope: momentary loudness, 400 ms windows every 100 ms, linear trend removed. Autocorrelation by
-FFT, unbiased and normalised so an exact repeat scores 1.0.
+Envelope: momentary loudness, 400 ms windows every 100 ms, in LKFS. The check works on its
+frame-to-frame changes. A copied clip copies its fine texture, so the changes repeat exactly where
+the audio repeats, while a fade or a gain change moves the level and barely touches them.
 
-The repeat reported is the fundamental: among the lags of 0.5 s or more where the autocorrelation is
-a local peak at or above `--loop-threshold` (0.75), the shortest one within 0.05 of the strongest. A
-loop correlates at every multiple of its period at about the same height, so this names the period
-rather than a half-period peak. If that fundamental is shorter than `--min-period` (6 s) the file
-passes with a note, because music repeats at bar length; at or longer, it fails.
-With no peak at or above the threshold, the score shown is the best value in the flaggable range and the file
-passes.
+For every lag from 0.5 s up to the file length minus one window, the score is the best Pearson
+correlation between a 10 s window of changes and the window that many frames later, over window
+starts every 0.5 s. Files under 30 s use a window of a third of their length, never under 3 s. The
+best window decides, so a loop is found when only part of the file repeats, under a fade, or at a
+different gain on each repeat. Lags resolve in 0.1 s steps. The longest repeat that can be seen is
+the file length minus the window: a 54 s clip repeated into a 60 s file is not caught.
 
-A clip repeated once to fill the file has a period longer than half its length, which the
-autocorrelation cannot score. Those lags, from half the file to the file length minus 5 s, are
-tested by the correlation of the frame-to-frame changes in the two overlapping stretches of
-envelope, with a stricter cutoff of 0.95 because short overlaps correlate by chance more easily
-(the worst of 600 generated unlooped beds scored 0.74). Changes rather than levels, because a level
-step halfway through would otherwise read as two matching halves. A file caught this way fails with the note "found by the extended-lag test".
+The repeat reported is the fundamental: among the lags where the score is a local peak at or above
+`--loop-threshold` (0.9), the shortest one within 0.05 of the strongest. A loop correlates at every
+multiple of its period at about the same height, so this names the period rather than a multiple
+or a half-period peak. If the fundamental is shorter than `--min-period` (6 s) the file passes with
+a note, because music repeats at bar length; at or longer, it fails. With no peak at the threshold,
+the score shown is the strongest local peak at lags of `--min-period` or more, and the file passes.
 
 Files shorter than twice the minimum period plus a second are not judged.
 
-Calibration, on 36 ambience beds from a production video pipeline (not included in this
-repository): looped files scored 0.79 to 1.00 with the lag equal to the repeat length. Unlooped
-files scored 0.11 to 0.43. One concourse recording with its own regular rhythm scored 0.605 and was
-missed at 0.75. A composed music bed scored 0.82 at its bar length; the 6 s minimum period keeps
-that out.
+Validation, on generated signals (the method was rebuilt before release; the earlier calibration
+figures no longer describe it). 600 unlooped textured beds of 30 to 600 s: no failures, worst score
+0.75, so 0.15 under the threshold. Loops under fade-outs of 0.25 to 30 s, loops in part of the file,
+crossfaded joins of 0.2 to 5 s, and repeats at random gains of up to 6 dB each: all caught with the
+right period, lowest score 0.97. A bed with a 6 dB swell every 8 or 20 seconds passes (highest
+0.83).
 
-Method: the beat-spectrum idea in Rafii and Pardo, "REpeating Pattern Extraction Technique (REPET):
-A Simple Method for Music/Voice Separation", IEEE Transactions on Audio, Speech, and Language
-Processing 21(1), 2013.
+Limitations, measured: a gain cycle with nothing under it looks like a repeat to any envelope
+method. A 4 dB tremolo with a 7 s period on steady noise scores 0.95 and fails, and two identical
+6 dB swells 30 s apart on steady room tone score 0.97 and fail. A natural bed with a regular cycle
+of 6 s or more may fail. The check measures repetition, not where the audio came from.
+
+Background: scoring every lag to find a repeating period is the beat-spectrum idea in Rafii and
+Pardo, "REpeating Pattern Extraction Technique (REPET): A Simple Method for Music/Voice Separation",
+IEEE Transactions on Audio, Speech, and Language Processing 21(1), 2013.
 
 ## steps
 

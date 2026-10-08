@@ -7,7 +7,7 @@ import math
 import sys
 from importlib.metadata import version as _version
 
-from .checks import level_steps, loop_score, separation
+from .checks import SILENT_NOTE, level_steps, loop_score, separation
 from .decode import DecodeError, decode
 from .loudness import k_weight
 
@@ -140,6 +140,12 @@ def _run(args) -> list[dict]:
     return results
 
 
+def _num(value: float, decimals: int) -> str:
+    """A printed number: fixed decimals, and never "-0.0" or "-0.00" for something that rounds to zero."""
+    text = f"{value:.{decimals}f}"
+    return f"{0.0:.{decimals}f}" if float(text) == 0 else text
+
+
 def _verdict(passed: bool) -> str:
     return "ok  " if passed else "FAIL"
 
@@ -153,26 +159,29 @@ def _render(entry: dict) -> str:
         if r["notes"]:
             detail = r["notes"][0]
         elif r["period_s"] is None:
-            detail = f"no repeat at or above {r['threshold']:.2f}"
+            detail = f"no repeat at or above {_num(r['threshold'], 2)}"
         else:
-            detail = f"repeats every {r['period_s']:.1f}s, at or above {r['threshold']:.2f}"
-        lines.append(f"  {_verdict(r['passed'])}  loop        {r['score']:.2f} ({detail})")
+            detail = f"repeats every {_num(r['period_s'], 1)}s, at or above {_num(r['threshold'], 2)}"
+        lines.append(f"  {_verdict(r['passed'])}  loop        {_num(r['score'], 2)} ({detail})")
     if "steps" in entry:
         r = entry["steps"]
+        notes = [n for n in r["notes"] if n != SILENT_NOTE]
         if r["step_at_s"] is None:
-            detail = r["notes"][0] if r["notes"] else "no level step measured"
+            detail = notes[0] if notes else "no level step measured"
             lines.append(f"  {_verdict(r['passed'])}  step        {detail}")
         else:
-            lines.append(f"  {_verdict(r['passed'])}  step        {r['step_db']:.2f} dB at "
-                         f"{r['step_at_s']:.1f}s (max {r['max_step']:.2f})")
-        lines.append(f"  info  range       {r['range_db']:.1f} dB   transient {r['transient_db']:.1f} dB   "
-                     f"peak {r['peak_dbtp']:.1f} dBTP")
+            lines.append(f"  {_verdict(r['passed'])}  step        {_num(r['step_db'], 2)} dB at "
+                         f"{_num(r['step_at_s'], 1)}s (max {_num(r['max_step'], 2)})")
+        lines.append(f"  info  range       {_num(r['range_db'], 1)} dB   "
+                     f"transient {_num(r['transient_db'], 1)} dB   peak {_num(r['peak_dbtp'], 1)} dBTP")
+        if SILENT_NOTE in r["notes"]:
+            lines.append(f"  warn  {SILENT_NOTE}")
     if "separation" in entry:
         r = entry["separation"]
-        lines.append(f"  {_verdict(r['passed'])}  separation  {r['separation_lu']:.2f} LU "
-                     f"(speech {r['speech_lkfs']:.2f}, bed {r['bed_lkfs']:.2f} LKFS; "
-                     f"min {r['min_lu']:.2f}, {entry['profile']})")
-        lines.append(f"  info  peak        {r['peak_dbtp']:.1f} dBTP   speech windows {r['runs']}   "
+        lines.append(f"  {_verdict(r['passed'])}  separation  {_num(r['separation_lu'], 2)} LU "
+                     f"(speech {_num(r['speech_lkfs'], 2)}, bed {_num(r['bed_lkfs'], 2)} LKFS; "
+                     f"min {_num(r['min_lu'], 2)}, {entry['profile']})")
+        lines.append(f"  info  peak        {_num(r['peak_dbtp'], 1)} dBTP   speech windows {r['runs']}   "
                      f"bed windows {r['gaps']}")
         for w in r["warnings"]:
             lines.append(f"  warn  {w}")

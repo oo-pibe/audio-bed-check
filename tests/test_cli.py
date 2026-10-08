@@ -64,6 +64,8 @@ def test_a_silent_bed_renders_without_crashing(wavs, capsys):
     out = capsys.readouterr().out
     assert "ok    loop        0.00 (level is constant; nothing to correlate)" in out
     assert "ok    step        no level change anywhere" in out
+    assert "  warn  the file is silent (peak under -60 dBTP)" in out
+    assert "ok    step        the file is silent" not in out
 
 
 def test_too_short_file_prints_the_note_on_an_ok_line(wavs, capsys, tmp_path):
@@ -245,3 +247,25 @@ def test_step_and_separation_print_two_decimals(wavs, capsys):
     two = r"-?\d+\.\d\d"
     line = rf"separation  {two} LU \(speech {two}, bed {two} LKFS; min 10\.00, music\)"
     assert re.search(line, capsys.readouterr().out)
+
+
+def test_every_printed_number_drops_the_minus_from_zero():
+    entry = {"file": "b.wav", "steps": {
+        "step_db": -0.001, "step_at_s": 12.0, "range_db": -0.03, "transient_db": -0.03,
+        "peak_dbtp": -0.03, "max_step": 6.0, "passed": True, "notes": ()}, "loop": {
+        "score": -0.001, "period_s": None, "threshold": 0.9, "min_period_s": 6.0, "passed": True,
+        "notes": ()}}
+    out = cli._render(entry)
+    assert "-0.0" not in out
+    assert "range       0.0 dB   transient 0.0 dB   peak 0.0 dBTP" in out
+    assert "loop        0.00 (" in out and "step        0.00 dB at 12.0s" in out
+    assert cli._num(-0.03, 1) == "0.0" and cli._num(-0.004, 2) == "0.00" and cli._num(-0.06, 1) == "-0.1"
+
+
+def test_python_dash_m_runs_the_command():
+    import subprocess
+    import sys
+    argv = [sys.executable, "-m", "audio_bed_check", "--version"]
+    out = subprocess.run(argv, capture_output=True, text=True)
+    assert out.returncode == 0
+    assert out.stdout.startswith("audio-bed-check 0.")

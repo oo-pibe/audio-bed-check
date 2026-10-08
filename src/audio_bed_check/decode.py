@@ -65,14 +65,19 @@ def _run(exe: str, path, downmix: bool) -> bytes:
         args += ["-ac", "2"]
     args += ["-ar", str(SR), "-c:a", "pcm_s16le", "-f", "wav", "-"]
     proc = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True)
-    if proc.returncode < 0:
-        raise DecodeError(f"{path}: ffmpeg failed to start (signal {-proc.returncode})")
     if proc.returncode != 0:
         stderr = proc.stderr.decode(errors="replace")
+        # first: the loader aborts with a signal (dyld raises SIGABRT), and its line names the library
+        loader = _LOADER.search(stderr)
+        if loader:
+            start = stderr.rfind("\n", 0, loader.start()) + 1
+            end = stderr.find("\n", loader.start())
+            line = stderr[start:end if end >= 0 else len(stderr)].strip()
+            raise DecodeError(f"{path}: ffmpeg failed to start ({line})")
+        if proc.returncode < 0:
+            raise DecodeError(f"{path}: ffmpeg failed to start (signal {-proc.returncode})")
         lines = [line.strip() for line in stderr.strip().splitlines() if line.strip()]
         detail = lines[-1] if lines else "no detail from ffmpeg"
-        if _LOADER.search(stderr):
-            raise DecodeError(f"{path}: ffmpeg failed to start ({detail})")
         if any("matches no streams" in line for line in lines):
             detail = "it has no audio stream"
         raise DecodeError(f"{path}: ffmpeg could not decode it ({detail})")

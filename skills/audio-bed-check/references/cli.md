@@ -59,8 +59,12 @@ never affect the exit code.
   period was found. Passes. Lower `--min-period` if you want it flagged.
 - "too short to measure level steps (needs at least 6.5s)": fewer than 45 half-second blocks (one every
   0.1 s) remain after the edges are dropped; 6.5 s at the default edge. Passes, with zeros.
-- "no level change anywhere": the steps check on digital silence; every boundary measures 0.0 dB,
-  so no place is named. Passes.
+- "no level change anywhere": the steps check on digital silence, or on a file whose every block is
+  under -70 LKFS (counted as -70 for the step); every boundary measures 0.0 dB, so no place is
+  named. Passes.
+- "the file is silent (peak under -60 dBTP)": a `warn` line under the steps output (in `--json`, the
+  last entry of the steps `notes`). The file peaks at or under -60 dBTP: probably the wrong file, a
+  muted export or a bed rendered at the wrong gain. It does not change the verdict or the exit code.
 - "level is constant; nothing to correlate": the loop check on digital silence or a constant tone
   (under 0.01 dB of envelope variation). Passes with score 0. A steady bed still varies by tenths of
   a dB and is checked normally.
@@ -102,8 +106,8 @@ never affect the exit code.
   something that is not an executable file (a missing path, a file without execute permission, or a
   name not on PATH). Exit 2.
 - "FILE: ffmpeg failed to start (signal N)" or "FILE: ffmpeg failed to start (...)": ffmpeg itself
-  crashed or could not load its shared libraries (the loader's last line follows); the file was
-  never read. Fix the ffmpeg install, or point `--ffmpeg` at a working one. Exit 2.
+  crashed, or could not load its shared libraries; then the loader's line naming the missing
+  library follows, even when the loader aborted ffmpeg with a signal. The file was never read. Fix the ffmpeg install, or point `--ffmpeg` at a working one. Exit 2.
 - "FILE: ffmpeg could not decode it (it has no audio stream)": the file has video only. Exit 2.
 - "FILE: no such file": exit 2.
 - "FILE: ffmpeg could not decode it (...)": the last line of ffmpeg's own error follows. Exit 2.

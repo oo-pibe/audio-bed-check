@@ -90,7 +90,9 @@ def k_weight(samples: np.ndarray, sr: int) -> np.ndarray:
     """
     _check_rate(sr)
     x = _channels(samples)
-    out = np.stack([fft_convolve(x[:, c], _kernel()) for c in range(x.shape[1])], axis=1)
+    out = np.empty_like(x)
+    for c in range(x.shape[1]):
+        out[:, c] = fft_convolve(x[:, c], _kernel())
     return out if np.ndim(samples) == 2 else out[:, 0]
 
 

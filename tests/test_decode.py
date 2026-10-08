@@ -87,14 +87,26 @@ def _fake_run(returncode, stderr):
 def test_a_crashed_ffmpeg_is_not_blamed_on_the_file(tmp_path, monkeypatch):
     path = tmp_path / "x.wav"
     path.write_bytes(b"")
-    monkeypatch.setattr("subprocess.run", _fake_run(-6, b"dyld[1]: Library not loaded: libavdevice"))
-    with pytest.raises(DecodeError, match=r"x\.wav: ffmpeg failed to start \(signal 6\)$"):
+    monkeypatch.setattr("subprocess.run", _fake_run(-11, b""))
+    with pytest.raises(DecodeError, match=r"x\.wav: ffmpeg failed to start \(signal 11\)$"):
         decode(path, ffmpeg=sys.executable)
+
+
+def test_a_loader_abort_still_names_the_missing_library(tmp_path, monkeypatch):
+    # dyld aborts with SIGABRT when a library is missing; the signal alone says nothing useful
+    path = tmp_path / "x.wav"
+    path.write_bytes(b"")
+    stderr = b"dyld[1]: Library not loaded: @rpath/libavdevice.dylib\n  Reason: tried: '/x' (no such file)"
+    monkeypatch.setattr("subprocess.run", _fake_run(-6, stderr))
+    with pytest.raises(DecodeError) as e:
+        decode(path, ffmpeg=sys.executable)
+    loader_line = "dyld[1]: Library not loaded: @rpath/libavdevice.dylib"
+    assert str(e.value) == f"{path}: ffmpeg failed to start ({loader_line})"
 
 
 @pytest.mark.parametrize("returncode, stderr, detail", [
     (1, b"dyld[42]: Library not loaded: @rpath/libavdevice.dylib\n  Reason: no such file",
-     "Reason: no such file"),
+     "dyld[42]: Library not loaded: @rpath/libavdevice.dylib"),
     (127, b"ffmpeg: error while loading shared libraries: libavdevice.so.61: cannot open shared object file",
      "ffmpeg: error while loading shared libraries: libavdevice.so.61: cannot open shared object file"),
 ])

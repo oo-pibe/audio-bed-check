@@ -133,6 +133,8 @@ STEP_SIDE = 20    # frames (2 s) averaged on each side of a boundary for the sus
 STEP_GAP = 5      # frames (0.5 s) skipped at the boundary, so no block on either side straddles the join
 STEP_TRANSIENT = int(round(STEP_BLOCK / STEP_HOP))   # frames between the two blocks a transient compares
 STEP_FLOOR_LKFS = -70.0   # blocks under this count as silence for the step: noise this low cannot lurch
+SILENT_DBTP = -60.0       # a file peaking at or under this is reported as silent; the verdict is unchanged
+SILENT_NOTE = "the file is silent (peak under -60 dBTP)"
 
 
 @dataclass(frozen=True)
@@ -167,7 +169,8 @@ def level_steps(samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: fl
     reported, never failed. The first and last `edge` seconds are dropped (rounded up to whole 0.1 s
     frames); a join less than about 2.5 s inside them reads smaller than it is, and inside them it is
     not seen at all. Blocks under -70 LKFS count as -70 for the step, so a file of near silence
-    cannot fail on its own noise.
+    cannot fail on its own noise. A file peaking at or under -60 dBTP carries SILENT_NOTE as its last
+    note, which the CLI prints as a warning; it does not change `passed`.
 
     `weighted` is the K-weighted signal (`k_weight(samples, sr)`) if the caller has it already.
     """
@@ -177,11 +180,12 @@ def level_steps(samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: fl
     skip = math.ceil(edge / STEP_HOP - 1e-9)
     env = env[skip:len(env) - skip] if skip else env
     peak = true_peak(samples, sr)
+    silent = (SILENT_NOTE,) if peak <= SILENT_DBTP else ()
     if len(env) < 2 * STEP_SIDE + STEP_GAP:
         frames = 2 * STEP_SIDE + STEP_GAP + 2 * skip
         need = round(STEP_BLOCK + (frames - 1) * STEP_HOP, 2)
         return StepsResult(0.0, None, 0.0, 0.0, peak, max_step, True,
-                           (f"too short to measure level steps (needs at least {need:g}s)",))
+                           (f"too short to measure level steps (needs at least {need:g}s)",) + silent)
     range_db = float(env.max() - env.min())
     transient = float(np.abs(env[STEP_TRANSIENT:] - env[:-STEP_TRANSIENT]).max())
     floored = np.maximum(env, STEP_FLOOR_LKFS)
@@ -192,14 +196,14 @@ def level_steps(samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: fl
     steps = np.abs(after - before)
     if steps.max() < 1e-9:   # digital silence: every boundary ties, so no place is the worst
         return StepsResult(0.0, None, range_db, transient, peak, max_step, True,
-                           ("no level change anywhere",))
+                           ("no level change anywhere",) + silent)
     worst = int(np.argmax(steps))
     step = float(steps[worst])
     # the join sits between the end of the last block before the gap and the start of the first after
     last_before_ends = (skip + i[worst] - 1) * STEP_HOP + STEP_BLOCK
     first_after_starts = (skip + i[worst] + STEP_GAP) * STEP_HOP
     at = round(float(last_before_ends + first_after_starts) / 2, 2)
-    return StepsResult(step, at, range_db, transient, peak, max_step, step <= max_step)
+    return StepsResult(step, at, range_db, transient, peak, max_step, step <= max_step, silent)
 
 
 SEP_GATE_HOP = 0.02   # seconds; RMS resolution for finding speech in the voiceover

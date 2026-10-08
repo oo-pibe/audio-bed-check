@@ -25,6 +25,7 @@ MESSAGES = [
     "decoded to no audio", "not a WAV stream", "resample to 48 kHz", "no level change anywhere",
     "weighted must be k_weight(samples, sr)", "pass mono or stereo samples", "samples must be finite floats",
     "check --ffmpeg or AUDIO_BED_CHECK_FFMPEG", "ffmpeg failed to start",
+    "the file is silent (peak under -60 dBTP)",
 ]
 
 

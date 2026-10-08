@@ -15,8 +15,13 @@ For every lag from 0.5 s up to the file length minus one window, the score is th
 correlation between a 10 s window of changes and the window that many frames later, over window
 starts every 0.5 s. Files under 30 s use a window of a third of their length, never under 3 s. The
 best window decides, so a loop is found when only part of the file repeats, under a fade, or at a
-different gain on each repeat. Lags resolve in 0.1 s steps. The longest repeat that can be seen is
-the file length minus the window: a 54 s clip repeated into a 60 s file is not caught.
+different gain on each repeat. Lags resolve in 0.1 s steps.
+
+Two limits on length follow from the window. A repeat is seen only when the repeating stretch is at
+least one period plus the window (10 s) long, so a 6 to 8 s clip played twice usually is not: a 6 s
+clip twice inside 40 s of other material passes, three times fails. The longest repeat that can be
+seen is the file length minus the window, about 10.5 s less than the file (a third less under
+30 s): a 54 s clip repeated into a 60 s file is not caught.
 
 The repeat reported is the fundamental: among the lags where the score is a local peak at or above
 `--loop-threshold` (0.9), the shortest one within 0.05 of the strongest. A loop correlates at every
@@ -28,11 +33,13 @@ the score shown is the strongest local peak at lags of `--min-period` or more, a
 Files shorter than twice the minimum period plus a second are not judged.
 
 Validation, on generated signals (the method was rebuilt before release; the earlier calibration
-figures no longer describe it). 600 unlooped textured beds of 30 to 600 s: no failures, worst score
-0.75, so 0.15 under the threshold. Loops under fade-outs of 0.25 to 30 s, loops in part of the file,
-crossfaded joins of 0.2 to 5 s, and repeats at random gains of up to 6 dB each: all caught with the
-right period, lowest score 0.97. A bed with a 6 dB swell every 8 or 20 seconds passes (highest
-0.83).
+figures no longer describe it). The figures are from one run of `scripts/loop_sweep.py` in the
+repository, which prints them. 600 unlooped textured beds of 30 to 600 s: no failures, worst score
+0.75; other seeds reach about 0.78, and longer files score higher by chance. Loops under fade-outs
+of 0.25 to 30 s, loops in part of the file, crossfaded joins of 0.2 to 5 s, and repeats at random
+gains of up to 6 dB each: all caught with the right period in that run, lowest score 0.96. On one
+other seed a 10 s loop at gains up to 6 dB apart was named at 20 s (a multiple) and still failed.
+Twenty 120 s beds with a 6 dB swell every 8 or 20 seconds all pass, highest 0.85 in that run.
 
 Limitations, measured: a gain cycle with nothing under it looks like a repeat to any envelope
 method. A 4 dB tremolo with a 7 s period on steady noise scores 0.95 and fails, and two identical

@@ -29,7 +29,9 @@ of objects; `--edge`, `--gate` and `--vo-offset` are not recorded in it.
   over the best-matching 10 s window; 1.0 is an exact repeat. Fails at 0.9 or above when the repeat
   is at or longer than `--min-period` (6 s). A shorter repeat is reported as a note, because music
   repeats at bar length and that is not a loop. A loop in part of the file, under a fade or at
-  changing gain is still found; a repeat longer than the file minus 10 s is not.
+  changing gain is still found. A repeat is seen only when the repeating stretch is at least one
+  period plus 10 s long, so a 6 to 8 s clip played twice usually is not; a repeat longer than the
+  file minus about 10.5 s is not seen either.
 - `steps`: fails on a sustained step above `--max-step` (6 dB): the mean level over the 2 s after a
   0.5 s gap at a boundary against the 2 s before, on half-second blocks every 0.1 s. A change held
   about 2 s or longer fails even if it comes back (a +7 dB plateau reads 6.8 held 2 s). Range and
@@ -63,3 +65,8 @@ The check functions take a float array at 48 kHz, `(n,)` mono or `(n, 2)` stereo
   mix that contains it.
 - Do not treat a high `transient` as a failure. Only `step` fails, by design.
 - Do not lower `--min-period` below the length of a musical bar unless you want bars flagged.
+
+## Limitations
+
+A steady gain cycle with no texture under it (tremolo, the same swell twice on room tone, beating
+between detuned tones) also fails; the check measures repetition, not provenance.

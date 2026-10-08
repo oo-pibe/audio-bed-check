@@ -70,11 +70,19 @@ Every default is a flag. The full list is in
 ## How well it works
 
 The loop method was rebuilt before release; the earlier calibration figures no longer describe it.
-It is validated on generated signals. 600 unlooped beds of 30 to 600 seconds produced no failures,
-and the worst scored 0.75, 0.15 under the 0.9 threshold. Loops under fades, in part of a file,
-with crossfaded joins or at changing gain all failed with the right period, the lowest at 0.97. A
-gain cycle with nothing under it, such as a steady tremolo or the same swell twice on room tone,
-reads as a loop; the details are in
+It is validated on generated signals, and the figures here are from one run of
+[scripts/loop_sweep.py](https://github.com/oo-pibe/audio-bed-check/blob/main/scripts/loop_sweep.py),
+which anyone can repeat. In that run, 600 unlooped beds of 30 to 600 seconds produced no failures
+and the worst scored 0.75. Other seeds reach about 0.78, and longer files score higher by chance.
+Loops under fades, in part of a file, with crossfaded joins or at changing gain all failed with the
+right period, the lowest at 0.96. On one other seed a 10 s loop at gains up to 6 dB apart was named
+at 20 s; it still failed. Beds with a 6 dB swell every 8 or 20 seconds passed, the highest at 0.85.
+
+A repeat is seen only when the repeating stretch is at least one period plus the 10 s window long,
+so a 6 to 8 second clip played twice usually is not. The longest repeat it can see is the file
+length minus the window: about 10.5 s less than the file, or a third less under 30 s. A gain cycle
+with nothing under it, such as a steady tremolo or the same swell twice on room tone, reads as a
+loop; the details are in
 [references/checks.md](https://github.com/oo-pibe/audio-bed-check/blob/main/skills/audio-bed-check/references/checks.md).
 
 The loudness code is ITU-R BS.1770-4 K-weighting written in numpy. The test suite compares its

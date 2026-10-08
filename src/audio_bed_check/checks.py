@@ -21,7 +21,7 @@ LOOP_STRIDE = 5        # frames between window starts
 class LoopResult:
     """score: Pearson correlation of the envelope's frame-to-frame changes at period_s, over the
     best-matching 10 s window; 1.0 is an exact repeat. When nothing reached the threshold, score is
-    the strongest local maximum at lags of min_period_s or more and period_s is None."""
+    the strongest local maximum at lags of min_period_s or more, never below 0.0, and period_s is None."""
 
     score: float
     period_s: float | None
@@ -45,20 +45,20 @@ def _lag_scores(d: np.ndarray, window: int, first: int, last: int) -> np.ndarray
     d[s+k:s+k+window] over window starts s every LOOP_STRIDE frames. Window sums come from cumulative
     sums, so one lag is O(len(d)) in numpy. A window with no variation cannot win (scores -1)."""
     m = len(d)
-    c1 = np.concatenate([[0.0], np.cumsum(d)])
-    c2 = np.concatenate([[0.0], np.cumsum(d * d)])
+    cum_d = np.concatenate([[0.0], np.cumsum(d)])
+    cum_d2 = np.concatenate([[0.0], np.cumsum(d * d)])
     scores = np.full(last - first + 1, -1.0)
     # a loop over lags, all numpy inside: measured 0.3 s for a 10-minute bed, 4 s for an hour
     for i, k in enumerate(range(first, last + 1)):
         s = np.arange(0, m - k - window + 1, LOOP_STRIDE)
-        cp = np.concatenate([[0.0], np.cumsum(d[:m - k] * d[k:])])
-        sa, sb = c1[s + window] - c1[s], c1[s + k + window] - c1[s + k]
-        va = c2[s + window] - c2[s] - sa * sa / window
-        vb = c2[s + k + window] - c2[s + k] - sb * sb / window
-        cov = cp[s + window] - cp[s] - sa * sb / window
-        ok = (va > 1e-12) & (vb > 1e-12)
+        cum_prod = np.concatenate([[0.0], np.cumsum(d[:m - k] * d[k:])])
+        sum_a, sum_b = cum_d[s + window] - cum_d[s], cum_d[s + k + window] - cum_d[s + k]
+        ss_a = cum_d2[s + window] - cum_d2[s] - sum_a * sum_a / window
+        ss_b = cum_d2[s + k + window] - cum_d2[s + k] - sum_b * sum_b / window
+        cross = cum_prod[s + window] - cum_prod[s] - sum_a * sum_b / window
+        ok = (ss_a > 1e-12) & (ss_b > 1e-12)
         if ok.any():
-            scores[i] = float((cov[ok] / np.sqrt(va[ok] * vb[ok])).max())
+            scores[i] = float((cross[ok] / np.sqrt(ss_a[ok] * ss_b[ok])).max())
     return scores
 
 
@@ -73,15 +73,16 @@ def loop_score(
     change moves the level and barely touches d. For every lag from 0.5 s to the file length minus
     one window, the score is the best Pearson correlation of a 10 s window of d with the window that
     many frames later (window starts every 0.5 s; a third of the file, at least 3 s, under 30 s).
-    So a repeat is found even when only part of the file loops, and the longest repeat that can be
-    found is the file length minus the window (about 10.5 s less than the file). Lags resolve in
-    0.1 s steps.
+    So a repeat is found even when only part of the file loops, but only when the repeating stretch is
+    at least one period plus the window long: a 6 s clip played twice is not seen. The longest repeat
+    that can be found is the file length minus the window (about 10.5 s less than the file). Lags
+    resolve in 0.1 s steps.
 
     The fundamental is the shortest lag whose score is a local maximum at or above `threshold` and
     within LOOP_PEAK_TOLERANCE of the strongest such peak. Under `min_period` it is music-like (a
     bar) and becomes a note; at or above it, the file is a loop and fails. With no peak at the
-    threshold, the score is the strongest local maximum at lags of `min_period` or more and the file
-    passes.
+    threshold, the score is the strongest local maximum at lags of `min_period` or more (0.0 when
+    there is none, or it is negative) and the file passes.
 
     `weighted` is the K-weighted signal (`k_weight(samples, sr)`) if the caller has it already, so a
     file is filtered once for several checks.
@@ -107,15 +108,17 @@ def loop_score(
     scores = _lag_scores(d, window, first, last)
     lags = np.arange(first, last + 1)
     # local maxima; never the first lag, whose only neighbour is on one side, and the last lag only
-    # if it is at least its neighbour, since a repeat can sit right at the end of the range
+    # if it is at least its neighbour, since a repeat can sit right at the end of the range. A lag
+    # where no window had any variation scores -1; a run of those is flat, not a peak
     is_peak = np.zeros(len(scores), dtype=bool)
     is_peak[1:-1] = (scores[1:-1] >= scores[:-2]) & (scores[1:-1] >= scores[2:])
     is_peak[-1] = scores[-1] >= scores[-2]
+    is_peak &= scores > -1.0
     peaks = is_peak & (scores >= threshold)
     if not peaks.any():
         flaggable = is_peak & (lags >= lo)
         score = float(scores[flaggable].max()) if flaggable.any() else 0.0
-        return LoopResult(min(score, 1.0), None, threshold, min_period, True)
+        return LoopResult(min(max(score, 0.0), 1.0), None, threshold, min_period, True)
     best = scores[peaks].max()
     i = int(np.flatnonzero(peaks & (scores >= best - LOOP_PEAK_TOLERANCE))[0])
     k = int(lags[i])

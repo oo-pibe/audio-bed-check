@@ -2,7 +2,12 @@
 
 `audio-bed-check SUBCOMMAND ...`, or `python -m audio_bed_check SUBCOMMAND ...` (the same command).
 `--help` on any subcommand lists its flags.
-`audio-bed-check --version` prints the version; it is a top-level flag and goes before any subcommand. Files can be anything ffmpeg reads, video included; each is decoded once to 48 kHz, mono or stereo as the file is (more than two channels are downmixed to two).
+`audio-bed-check --version` prints the version. It is a top-level flag, not one of the flags
+below, and goes before any subcommand.
+
+Files can be anything ffmpeg reads, video included. Each is decoded once to 48 kHz. Files keep
+their channels: mono stays mono, stereo is measured per channel and summed the way BS.1770 does,
+more than two channels are downmixed to two by ffmpeg; only the first audio track is read.
 
 ## Flags on every subcommand
 
@@ -20,11 +25,12 @@
 
   `--edge`, `--gate` and `--vo-offset` are not recorded in the output; keep the command line if you
   need them.
-- Numeric flags are checked on the way in: periods, steps and separations must be positive, the
-  loop threshold between 0 and 1, the edge zero or more, every value finite. A bad value is a usage
-  error (exit 2) before any file is read.
 - `--ffmpeg PATH`: the ffmpeg binary to use. Default: `$AUDIO_BED_CHECK_FFMPEG`, then `ffmpeg` on
   PATH.
+
+Numeric flags are checked on the way in: periods, steps and separations must be positive, the loop
+threshold between 0 and 1, the edge zero or more, every value finite. A bad value is a usage error
+(exit 2) before any file is read.
 
 ## loop BED [BED ...]
 

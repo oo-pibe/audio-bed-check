@@ -1,14 +1,17 @@
 # audio-bed-check
 
-**Three faults that get past a listener who has heard the file too many times, caught by number.**
+Finds three faults in a rendered audio bed that a tired ear misses: a loop, a level jump at a join,
+and a voiceover sitting too close to the bed.
 
 A bed is the ambience or music that sits under a voiceover or a cut. Three things go wrong with a
-rendered one that nothing in a normal pipeline measures: the file repeats itself, the level jumps
+rendered one that a loudness meter does not catch: the file repeats itself, the level jumps
 where two pieces were joined, or the voice over it is not far enough above it to be heard without
 effort. This command measures each one and exits non-zero when one fails.
 
 It needs Python 3.10 or later and ffmpeg, either on PATH or named with `--ffmpeg` or
-`AUDIO_BED_CHECK_FFMPEG`. It reads anything ffmpeg reads, video included.
+`AUDIO_BED_CHECK_FFMPEG`. It reads anything ffmpeg reads, video included. Files keep their
+channels: mono stays mono, stereo is measured per channel and summed the way BS.1770 does, more
+than two channels are downmixed to two by ffmpeg; only the first audio track is read.
 
 ```
 pip install audio-bed-check
@@ -25,10 +28,18 @@ ambience.wav
 ```
 
 Exit 0 when every check passes, 1 when any fails, 2 when it could not run (a bad flag, an unreadable
-file, no speech found in the voiceover). `warn` lines, such as a file peaking under -60 dBTP or a
-voiceover that seems to start somewhere other than `--vo-offset`, never change the exit code.
+file, no speech found in the voiceover). A `warn` line, such as a file peaking under -60 dBTP or a
+voiceover that seems to start somewhere other than `--vo-offset`, never changes the exit code.
 `--json` prints the numbers as a list of objects; the field list is in the command reference.
 `python -m audio_bed_check` is the same command.
+
+Check the bed before it is encoded. Lossy codecs rebuild noise-like content differently on each
+pass; an exact loop of steady room tone scored 1.00 as WAV and between 0.51 and 0.97 after
+ffmpeg's built-in AAC at 128k, depending on the ffmpeg build, and textured loops still score above
+0.9 after AAC or MP3.
+
+A 10-minute mono file takes about 2 s for `bed` and about 1.3 GB of memory; an hour takes about
+35 s and 3.7 GB.
 
 ## The checks
 
@@ -38,14 +49,16 @@ even when only part of the file repeats, or it fades out, or each repeat sits at
 Among the peaks that reach the threshold (`--loop-threshold`, 0.9), it reports the shortest one
 scoring within 0.05 of the strongest. That is the repeat length rather than a multiple of it. A
 repeat of 6 seconds or longer (`--min-period`) fails. A shorter one is reported and passes, because
-music repeats at bar length.
+music repeats at bar length. The loop check needs 13 s at the defaults; a shorter file reports ok
+with a note.
 
 `steps`: half-second loudness blocks every 0.1 s. The sustained step is the mean level over two
 seconds after a half-second gap against the two seconds before; it fails above 6 dB (`--max-step`).
 A bad join moves the level and it stays moved. A crowd surge spikes and comes back, so the largest
 half-second transient and the range are printed but never fail the file. A change held about two
 seconds or longer does fail, even if it comes back: a +7 dB plateau reads 3.9 dB held one second
-and 6.8 held two.
+and 6.8 held two. The steps check needs 6.5 s at the default edge; a shorter file reports ok with a
+note.
 
 `separation`: speech windows are found in the voiceover file, then compared with the bed-only gaps
 between them. Each window's level is its 90th percentile of 50 ms K-weighted blocks. Both kinds of
@@ -56,18 +69,22 @@ in the mix is estimated from the two envelopes, and a warning names it when it i
 from `--vo-offset`; a mix whose bed-only windows are silent (the voiceover passed as the mix) is
 refused.
 
+The check compares speech windows with the bed in the gaps between them, so a bed that is ducked
+under speech barely changes the figure. Torcoli et al. measured speech against the ducked
+background, so treat the floors as approximate for ducked mixes.
+
 | Check | Fails when | Default | Source |
 |---|---|---|---|
 | loop | repeat score at or above | 0.9, repeats of 6 s or longer | validation below |
-| steps | sustained step above | 6 dB | production use |
+| steps | sustained step above | 6 dB | chosen in one production pipeline where a 7 dB join was audible; no published source |
 | separation, music | voice less than | 10 LU above bed | Torcoli et al., JAES 2019 |
 | separation, ambience | voice less than | 15 LU above bed | Torcoli et al., JAES 2019 |
 | separation, wcag | voice less than | 20 LU above bed | WCAG 2 technique G56 (stated there in dB(A) SPL) |
 
-Every default is a flag. The full list is in
+Every default can be changed with a flag; the full list is in
 [skills/audio-bed-check/references/cli.md](https://github.com/oo-pibe/audio-bed-check/blob/main/skills/audio-bed-check/references/cli.md).
 
-## How well it works
+## Where the numbers come from
 
 The loop method was rebuilt before release; the earlier calibration figures no longer describe it.
 It is validated on generated signals, and the figures here are from one run of
@@ -126,13 +143,13 @@ plugin:
   doi:10.17743/jaes.2019.0052: the source of the 10 LU (music) and 15 LU (ambience) floors. The
   same study found non-expert listeners wanted about 4 LU more than experts.
 - WCAG 2 technique G56, the 20 dB speech-over-background rule, stated there in dB(A) SPL.
-- ffmpeg's `ebur128` filter measures loudness; it does not judge loops, joins or separation.
+- ffmpeg's `ebur128` filter, the reference the loudness tests compare against.
 
 ## Origin
 
 Extracted from the video pipeline at [Road to Kickoff](https://roadtokickoff.com). A bed there
-stepped 7 dB at two joins, got past every automated check, and was caught by ear. This tool measures
-the things those checks did not.
+stepped 7 dB at two joins, got past every automated check, and was caught by ear. The 6 dB step
+limit comes from that bed.
 
 ## License
 

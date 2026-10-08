@@ -1,9 +1,20 @@
 # The three checks
 
-All measurements use ITU-R BS.1770-4 K-weighting, computed in numpy at 48 kHz (files are decoded to
-48 kHz by ffmpeg, mono or stereo as the file is; more than two channels are downmixed to two). Stereo
-is measured per channel and the channels' powers summed, as BS.1770 does, never downmixed to mono. Levels are LKFS; differences between levels are LU.
-The steps check reports its figures in dB.
+Loudness uses ITU-R BS.1770-4 K-weighting, computed in numpy at 48 kHz. Two measurements are not
+K-weighted: speech detection in the voiceover is plain RMS in dBFS, and true peak is unweighted.
+Levels are LKFS; differences between levels are LU. The steps check reports its figures in dB.
+
+Files keep their channels: mono stays mono, stereo is measured per channel and summed the way
+BS.1770 does, more than two channels are downmixed to two by ffmpeg; only the first audio track is
+read. Every file is decoded to 48 kHz.
+
+Check the bed before it is encoded. Lossy codecs rebuild noise-like content differently on each
+pass; an exact loop of steady room tone scored 1.00 as WAV and between 0.51 and 0.97 after
+ffmpeg's built-in AAC at 128k, depending on the ffmpeg build, and textured loops still score above
+0.9 after AAC or MP3.
+
+A 10-minute mono file takes about 2 s for `bed` and about 1.3 GB of memory; an hour takes about
+35 s and 3.7 GB. A `warn` line never changes the exit code.
 
 ## loop
 
@@ -30,7 +41,8 @@ or a half-period peak. If the fundamental is shorter than `--min-period` (6 s) t
 a note, because music repeats at bar length; at or longer, it fails. With no peak at the threshold,
 the score shown is the strongest local peak at lags of `--min-period` or more, and the file passes.
 
-Files shorter than twice the minimum period plus a second are not judged.
+Files shorter than twice the minimum period plus a second (13 s at the defaults) are not judged;
+they report ok with a note.
 
 Validation, on generated signals (the method was rebuilt before release; the earlier calibration
 figures no longer describe it). The figures are from one run of `scripts/loop_sweep.py` in the
@@ -80,7 +92,7 @@ What fails, measured on generated noise:
 - A join of 6.1 dB reads 6.1 wherever it falls between blocks.
 
 Needs at least 6.5 seconds of audio at the default edge (45 blocks after the edges are dropped; the
-message states the figure for the edge in use). A join less than about 2.5 s inside the dropped
+message states the figure for the edge in use). A shorter file reports ok with a note. A join less than about 2.5 s inside the dropped
 edge (the 2 s window plus the gap) reads smaller than it is. Inside the dropped edge it is not seen
 at all, not even in `range` or `transient`.
 
@@ -107,9 +119,9 @@ resolution over plus or minus the mix's length; the best match is reported as
 with regular pauses matches nearly as well at several lags, so the given offset stands when its
 match is within 2% of the best.
 
-Not fixed, by design: speech windows are compared with un-ducked gaps, so a bed that is ducked
-under the speech barely moves the figure. Torcoli's LU difference is speech against the ducked
-background.
+The check compares speech windows with the bed in the gaps between them, so a bed that is ducked
+under speech barely changes the figure. Torcoli et al. measured speech against the ducked
+background, so treat the floors as approximate for ducked mixes.
 
 This is voice-plus-bed against bed, which is what a listener hears and what WCAG describes, not the
 ratio of the two stems. It is also a K-weighted figure: a voice and a bed with different spectra

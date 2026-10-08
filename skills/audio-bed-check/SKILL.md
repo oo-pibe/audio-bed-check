@@ -8,7 +8,8 @@ license: MIT
 
 Three checks on finished audio, each a pass or fail with the number behind it. Install with
 `pip install audio-bed-check`; ffmpeg must be on PATH or named in `AUDIO_BED_CHECK_FFMPEG`.
-`python -m audio_bed_check` is the same command.
+`python -m audio_bed_check` is the same command. Files keep their channels (stereo is measured per
+channel and summed, as BS.1770 does); only the first audio track is read.
 
 ## Which check
 
@@ -22,6 +23,10 @@ Exit 0 means every check passed, 1 means at least one failed, 2 means a check co
 ffmpeg, unreadable file, no speech found). `warn` lines (a silent file, a hot peak, an offset that
 disagrees with the voiceover) never change the exit code. Add `--json` to get the numbers as a list
 of objects; `--edge`, `--gate` and `--vo-offset` are not recorded in it.
+
+Check the bed before it is encoded: lossy codecs rebuild noise-like content differently on each
+pass, so an exact loop of steady room tone can drop under 0.9 after AAC and pass. `loop` needs 13 s
+and `steps` 6.5 s at the defaults; a shorter file reports ok with a note, not a verdict.
 
 ## Reading the result
 
@@ -40,7 +45,9 @@ of objects; `--edge`, `--gate` and `--vo-offset` are not recorded in it.
 - `separation`: the mix inside the voiceover's speech windows against the bed-only gaps between
   them, in LU. Fails under the profile's minimum: `music` 10, `ambience` 15, `wcag` 20. The read
   needs pauses of 0.9 s or more. When the voiceover seems to start somewhere other than
-  `--vo-offset` (more than 0.2 s off), a `warn` line names where; rerun with that offset.
+  `--vo-offset` (more than 0.2 s off), a `warn` line names where; rerun with that offset. A bed
+  ducked under the speech barely changes the figure, so treat the floors as approximate for ducked
+  mixes.
 
 Thresholds and their sources: [references/checks.md](references/checks.md). Every flag and every
 message: [references/cli.md](references/cli.md).

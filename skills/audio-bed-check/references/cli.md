@@ -25,9 +25,9 @@
 
 ## steps BED [BED ...]
 
-- `--max-step DB` (6): the largest sustained level step allowed (mean of the 2 s after a boundary
-  against the 2 s before).
-- `--edge S` (0.75): seconds ignored at each end, rounded up to whole half-second blocks, so a fade
+- `--max-step DB` (6): the largest sustained level step allowed (mean of the 2 s after a 0.5 s
+  gap at a boundary against the 2 s before it).
+- `--edge S` (0.75): seconds ignored at each end, rounded up to whole 0.1 s frames, so a fade
   in or out is not read as a step.
 
 ## bed BED [BED ...]
@@ -57,8 +57,8 @@ never affect the exit code.
   a second, so no repeat that long could be seen. Passes, with the score 0.
 - "repeats every Ns, under --min-period Ms, not flagged": a strong repeat shorter than the minimum
   period was found. Passes. Lower `--min-period` if you want it flagged.
-- "too short to measure level steps (needs at least 6.5s)": fewer than nine half-second blocks remain
-  after the edges are dropped. Passes, with zeros.
+- "too short to measure level steps (needs at least 6.5s)": fewer than 45 half-second blocks (one every
+  0.1 s) remain after the edges are dropped; 6.5 s at the default edge. Passes, with zeros.
 - "no level change anywhere": the steps check on digital silence; every boundary measures 0.0 dB,
   so no place is named. Passes.
 - "level is constant; nothing to correlate": the loop check on digital silence or a constant tone

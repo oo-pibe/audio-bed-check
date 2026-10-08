@@ -128,14 +128,18 @@ def loop_score(
 
 
 STEP_BLOCK = 0.5  # seconds; the scale a listener hears as "the sound changed" rather than as texture
-STEP_SIDE = 4     # blocks (2 s) averaged on each side of a boundary for the sustained step
+STEP_HOP = 0.1    # seconds between blocks, so a join is never more than 0.05 s from a boundary
+STEP_SIDE = 20    # frames (2 s) averaged on each side of a boundary for the sustained step
+STEP_GAP = 5      # frames (0.5 s) skipped at the boundary, so no block on either side straddles the join
+STEP_TRANSIENT = int(round(STEP_BLOCK / STEP_HOP))   # frames between the two blocks a transient compares
+STEP_FLOOR_LKFS = -70.0   # blocks under this count as silence for the step: noise this low cannot lurch
 
 
 @dataclass(frozen=True)
 class StepsResult:
-    """step_db: largest change in mean level between the 2 s before and after a half-second boundary,
-    at step_at_s (seconds into the file); the only field that decides `passed`. range_db (max minus
-    min) and transient_db (largest change between adjacent half-second blocks) are reported, never
+    """step_db: largest change in mean level between the 2 s before a join and the 2 s after it, at
+    step_at_s (seconds into the file); the only field that decides `passed`. range_db (max minus
+    min) and transient_db (largest change between half-second blocks 0.5 s apart) are reported, never
     failed. step_at_s is None when the file is too short to measure or the level never changes.
     Values are full precision; the CLI rounds."""
 
@@ -153,34 +157,48 @@ def level_steps(samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: fl
                 weighted: np.ndarray | None = None) -> StepsResult:
     """Does the level lurch?
 
-    Only the sustained step fails: the mean of the 2 s after a boundary against the 2 s before. A hard
-    join shifts the level and it stays shifted; a crowd surge spikes and comes back, and that is the
-    recording's character, so range and transient are reported, never failed. A step within the
-    dropped edge plus the run-up is not seen as a full step. A join under 3 s from either end at the
-    defaults reads smaller than it is, and inside the dropped edge it is not seen at all.
+    Half-second K-weighted blocks every 0.1 s. At every boundary the sustained step is the mean of
+    the 2 s of blocks after a 0.5 s transition gap against the 2 s of blocks before it; the gap means
+    no block on either side straddles a join, so the reading does not depend on where the join falls
+    between blocks. A change held about 2 s or longer therefore fails even if it comes back.
+
+    Only the sustained step fails. A hard join shifts the level and it stays shifted; a crowd surge
+    spikes and comes back, and that is the recording's character, so range and transient are
+    reported, never failed. The first and last `edge` seconds are dropped (rounded up to whole 0.1 s
+    frames); a join less than about 2.5 s inside them reads smaller than it is, and inside them it is
+    not seen at all. Blocks under -70 LKFS count as -70 for the step, so a file of near silence
+    cannot fail on its own noise.
 
     `weighted` is the K-weighted signal (`k_weight(samples, sr)`) if the caller has it already.
     """
     if edge < 0:
         raise ValueError("edge must be >= 0")
-    env = block_loudness(_weighted(samples, sr, weighted), sr, STEP_BLOCK, STEP_BLOCK)
-    skip = int(np.ceil(edge / STEP_BLOCK))
+    env = block_loudness(_weighted(samples, sr, weighted), sr, STEP_BLOCK, STEP_HOP)
+    skip = math.ceil(edge / STEP_HOP - 1e-9)
     env = env[skip:len(env) - skip] if skip else env
     peak = true_peak(samples, sr)
-    if len(env) < 2 * STEP_SIDE + 1:
-        need = (2 * STEP_SIDE + 1 + 2 * skip) * STEP_BLOCK
+    if len(env) < 2 * STEP_SIDE + STEP_GAP:
+        frames = 2 * STEP_SIDE + STEP_GAP + 2 * skip
+        need = round(STEP_BLOCK + (frames - 1) * STEP_HOP, 2)
         return StepsResult(0.0, None, 0.0, 0.0, peak, max_step, True,
                            (f"too short to measure level steps (needs at least {need:g}s)",))
     range_db = float(env.max() - env.min())
-    transient = float(np.abs(np.diff(env)).max())
-    boundaries = range(STEP_SIDE, len(env) - STEP_SIDE + 1)
-    # a plain scan: a 10-minute bed is 1,200 boundaries, nothing next to the K-weighting
-    steps = [abs(float(env[i:i + STEP_SIDE].mean() - env[i - STEP_SIDE:i].mean())) for i in boundaries]
-    if max(steps) == 0.0:   # digital silence: every boundary ties, so no place is the worst
+    transient = float(np.abs(env[STEP_TRANSIENT:] - env[:-STEP_TRANSIENT]).max())
+    floored = np.maximum(env, STEP_FLOOR_LKFS)
+    c = np.concatenate([[0.0], np.cumsum(floored)])
+    i = np.arange(STEP_SIDE, len(env) - STEP_GAP - STEP_SIDE + 1)
+    before = (c[i] - c[i - STEP_SIDE]) / STEP_SIDE
+    after = (c[i + STEP_GAP + STEP_SIDE] - c[i + STEP_GAP]) / STEP_SIDE
+    steps = np.abs(after - before)
+    if steps.max() < 1e-9:   # digital silence: every boundary ties, so no place is the worst
         return StepsResult(0.0, None, range_db, transient, peak, max_step, True,
                            ("no level change anywhere",))
     worst = int(np.argmax(steps))
-    step, at = steps[worst], (skip + boundaries[worst]) * STEP_BLOCK
+    step = float(steps[worst])
+    # the join sits between the end of the last block before the gap and the start of the first after
+    last_before_ends = (skip + i[worst] - 1) * STEP_HOP + STEP_BLOCK
+    first_after_starts = (skip + i[worst] + STEP_GAP) * STEP_HOP
+    at = round(float(last_before_ends + first_after_starts) / 2, 2)
     return StepsResult(step, at, range_db, transient, peak, max_step, step <= max_step)
 
 

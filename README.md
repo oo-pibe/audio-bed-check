@@ -37,10 +37,12 @@ scoring within 0.05 of the strongest. That is the repeat length rather than a mu
 repeat of 6 seconds or longer (`--min-period`) fails. A shorter one is reported and passes, because
 music repeats at bar length.
 
-`steps`: half-second loudness blocks. The sustained step is the mean level two seconds after a
-boundary against two seconds before; it fails above 6 dB (`--max-step`). A bad join moves the level
-and it stays moved. A crowd surge spikes and comes back, so the largest half-second transient and
-the range are printed but never fail the file.
+`steps`: half-second loudness blocks every 0.1 s. The sustained step is the mean level over two
+seconds after a half-second gap against the two seconds before; it fails above 6 dB (`--max-step`).
+A bad join moves the level and it stays moved. A crowd surge spikes and comes back, so the largest
+half-second transient and the range are printed but never fail the file. A change held about two
+seconds or longer does fail, even if it comes back: a +7 dB plateau reads 3.9 dB held one second
+and 6.8 held two.
 
 `separation`: speech windows are found in the voiceover file, then compared with the bed-only gaps
 between them. Each window's level is its 90th percentile of 50 ms K-weighted blocks. Both kinds of

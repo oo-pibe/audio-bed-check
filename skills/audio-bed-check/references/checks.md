@@ -45,21 +45,35 @@ IEEE Transactions on Audio, Speech, and Language Processing 21(1), 2013.
 
 ## steps
 
-Envelope: K-weighted level in non-overlapping half-second blocks, the first and last `--edge`
-seconds (0.75, rounded up to whole blocks) dropped so a fade is not read as a jump.
+Envelope: K-weighted level in half-second blocks every 0.1 s, the first and last `--edge` seconds
+(0.75, rounded up to whole 0.1 s frames) dropped so a fade is not read as a jump.
 
-- `step`: the largest absolute difference between the mean of the four blocks after a boundary and
-  the four before. Fails above `--max-step` (6 dB). A hard join shifts the level and it stays
-  shifted.
+- `step`: at every 0.1 s boundary, the mean of the 2 s of blocks after a 0.5 s transition gap
+  against the 2 s of blocks before it; the largest absolute difference. Fails above `--max-step`
+  (6 dB). The gap keeps every block on both sides clear of the join, so the reading does not depend
+  on where the join falls between blocks, and the time printed names the join to within 0.05 s.
+  A hard join shifts the level and it stays shifted. Blocks under -70 LKFS count as -70 for the
+  step, so noise far below anything audible cannot fail a file; a bed coming in out of silence is
+  still a step.
 - `range`: loudest block minus quietest. Information only.
-- `transient`: largest change between adjacent blocks. Information only. A loud crowd surges and
-  comes back, and blocking on that would flatten exactly the recordings worth keeping.
+- `transient`: largest change between two half-second blocks 0.5 s apart. Information only. A
+  loud crowd surges and comes back, and blocking on that would flatten exactly the recordings worth
+  keeping.
 - `peak`: true peak, 4x oversampled, dBTP. A bed near 0 dBTP has no headroom under a mix.
 
-Needs at least 6.5 seconds of audio at the default edge (nine half-second blocks after the edges are
-dropped; the message states the figure for the edge in use). A join less than 3 s from either end
-(the edge rounded up to 1 s, plus the 2 s run-up) reads smaller than it is, about half its height at
-2 s from the end. Inside the dropped edge it is not seen at all, not even in `range` or `transient`.
+What fails, measured on generated noise:
+
+- A change held about 2 s or longer fails even if it comes back. A +7 dB plateau reads 2.2 dB held
+  0.5 s, 3.9 held 1 s, 5.7 held 1.5 s, 6.8 held 2 s and 7.0 held 3 s.
+- A +7 dB raised-cosine swell passes: 5.6 dB at 4 s wide, 3.6 at 2 s wide.
+- A 10 dB ramp reads 5.0 dB over 5 s and 0.9 over 30 s; both pass. A slow fade is not a join.
+- Two +4 dB steps 1 s apart (8 dB louder and staying louder) read 6.9 and fail.
+- A join of 6.1 dB reads 6.1 wherever it falls between blocks.
+
+Needs at least 6.5 seconds of audio at the default edge (45 blocks after the edges are dropped; the
+message states the figure for the edge in use). A join less than about 2.5 s inside the dropped
+edge (the 2 s window plus the gap) reads smaller than it is. Inside the dropped edge it is not seen
+at all, not even in `range` or `transient`.
 
 ## separation
 

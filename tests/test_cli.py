@@ -55,7 +55,7 @@ def test_batch_keeps_going_and_reports_every_file(wavs, capsys):
     assert cli.main(["bed", str(wavs["stepped"]), str(wavs["clean"])]) == 1
     out = capsys.readouterr().out
     assert str(wavs["stepped"]) in out and str(wavs["clean"]) in out
-    assert "FAIL  step        7.04 dB at 30.0s (max 6.00)" in out
+    assert "FAIL  step        7.05 dB at 30.1s (max 6.00)" in out
     assert out.count("ok    loop") == 2 and out.count("ok    step") == 1
 
 

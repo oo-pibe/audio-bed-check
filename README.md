@@ -25,7 +25,10 @@ ambience.wav
 ```
 
 Exit 0 when every check passes, 1 when any fails, 2 when it could not run (a bad flag, an unreadable
-file, no speech found in the voiceover). `--json` prints the numbers as a list of objects.
+file, no speech found in the voiceover). `warn` lines, such as a file peaking under -60 dBTP or a
+voiceover that seems to start somewhere other than `--vo-offset`, never change the exit code.
+`--json` prints the numbers as a list of objects; the field list is in the command reference.
+`python -m audio_bed_check` is the same command.
 
 ## The checks
 
@@ -48,7 +51,10 @@ and 6.8 held two.
 between them. Each window's level is its 90th percentile of 50 ms K-weighted blocks. Both kinds of
 window are measured in the mix, so the figure is voice plus bed against bed, which is closer to what
 a listener hears than the gain on each stem. Profiles set the minimum: `music` 10 LU (the default),
-`ambience` 15 LU, `wcag` 20 LU.
+`ambience` 15 LU, `wcag` 20 LU. The read needs pauses of 0.9 seconds or more. The voiceover's start
+in the mix is estimated from the two envelopes, and a warning names it when it is more than 0.2 s
+from `--vo-offset`; a mix whose bed-only windows are silent (the voiceover passed as the mix) is
+refused.
 
 | Check | Fails when | Default | Source |
 |---|---|---|---|

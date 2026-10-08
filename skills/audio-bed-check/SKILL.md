@@ -8,6 +8,7 @@ license: MIT
 
 Three checks on finished audio, each a pass or fail with the number behind it. Install with
 `pip install audio-bed-check`; ffmpeg must be on PATH or named in `AUDIO_BED_CHECK_FFMPEG`.
+`python -m audio_bed_check` is the same command.
 
 ## Which check
 
@@ -18,7 +19,9 @@ Three checks on finished audio, each a pass or fail with the number behind it. I
   at zero).
 
 Exit 0 means every check passed, 1 means at least one failed, 2 means a check could not run (no
-ffmpeg, unreadable file, no speech found). Add `--json` to get the numbers as a list of objects.
+ffmpeg, unreadable file, no speech found). `warn` lines (a silent file, a hot peak, an offset that
+disagrees with the voiceover) never change the exit code. Add `--json` to get the numbers as a list
+of objects; `--edge`, `--gate` and `--vo-offset` are not recorded in it.
 
 ## Reading the result
 
@@ -27,11 +30,15 @@ ffmpeg, unreadable file, no speech found). Add `--json` to get the numbers as a 
   is at or longer than `--min-period` (6 s). A shorter repeat is reported as a note, because music
   repeats at bar length and that is not a loop. A loop in part of the file, under a fade or at
   changing gain is still found; a repeat longer than the file minus 10 s is not.
-- `steps`: fails on a sustained step above `--max-step` (6 dB), the mean level 2 s after a boundary
-  against 2 s before. Range and the largest half-second transient are printed for information only;
-  a crowd surge is content, a join is a fault.
+- `steps`: fails on a sustained step above `--max-step` (6 dB): the mean level over the 2 s after a
+  0.5 s gap at a boundary against the 2 s before, on half-second blocks every 0.1 s. A change held
+  about 2 s or longer fails even if it comes back (a +7 dB plateau reads 6.8 held 2 s). Range and
+  the largest half-second transient are printed for information only; a crowd surge is content, a
+  join is a fault.
 - `separation`: the mix inside the voiceover's speech windows against the bed-only gaps between
-  them, in LU. Fails under the profile's minimum: `music` 10, `ambience` 15, `wcag` 20.
+  them, in LU. Fails under the profile's minimum: `music` 10, `ambience` 15, `wcag` 20. The read
+  needs pauses of 0.9 s or more. When the voiceover seems to start somewhere other than
+  `--vo-offset` (more than 0.2 s off), a `warn` line names where; rerun with that offset.
 
 Thresholds and their sources: [references/checks.md](references/checks.md). Every flag and every
 message: [references/cli.md](references/cli.md).

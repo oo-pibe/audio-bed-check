@@ -1,15 +1,25 @@
 # Command reference
 
-`audio-bed-check SUBCOMMAND ...`. `--help` on any subcommand lists its flags.
+`audio-bed-check SUBCOMMAND ...`, or `python -m audio_bed_check SUBCOMMAND ...` (the same command).
+`--help` on any subcommand lists its flags.
 `audio-bed-check --version` prints the version; it is a top-level flag and goes before any subcommand. Files can be anything ffmpeg reads, video included; each is decoded once to 48 kHz, mono or stereo as the file is (more than two channels are downmixed to two).
 
 ## Flags on every subcommand
 
-- `--json`: print a JSON list, one object per file, with every number (rounded to 2 decimals), the
-  thresholds used, `passed`, `notes` and `warnings`. Keys are the result field names. Separation
-  entries also carry `profile`: the profile name, or `--min-separation` when that flag replaced it.
-  The list is nested as `{"file", "passed", "loop" | "steps" | "separation": {result fields}}`;
-  `notes` sits under loop and steps, `warnings` under separation.
+- `--json`: print a JSON list, one object per file, with every number rounded to 2 decimals. Each
+  object has `file`, `passed` and the sections that ran; a file that could not be decoded has
+  `error` instead of sections. The fields:
+  - `loop`: `score`, `period_s` (null when no repeat reached the threshold), `threshold`,
+    `min_period_s`, `passed`, `notes`.
+  - `steps`: `step_db`, `step_at_s` (null when too short or nothing changed), `range_db`,
+    `transient_db`, `peak_dbtp`, `max_step`, `passed`, `notes`.
+  - `separation`: `separation_lu`, `speech_lkfs`, `bed_lkfs`, `runs`, `gaps`, `peak_dbtp`,
+    `min_lu`, `passed`, `estimated_offset_s` (null when either file is under 0.4 s), `warnings`.
+  - top level, separation only: `profile`, the profile name, or `--min-separation` when that flag
+    replaced it.
+
+  `--edge`, `--gate` and `--vo-offset` are not recorded in the output; keep the command line if you
+  need them.
 - Numeric flags are checked on the way in: periods, steps and separations must be positive, the
   loop threshold between 0 and 1, the edge zero or more, every value finite. A bad value is a usage
   error (exit 2) before any file is read.
@@ -48,8 +58,10 @@ exits 2 after the other files are checked; in `--json` its entry is `{"file", "p
 ## Output
 
 Each block starts with the file name; the `ok`, `FAIL`, `info` and `warn` lines follow, or a single
-`error` line for a file that could not be decoded. `info` lines
-never affect the exit code.
+`error` line for a file that could not be decoded. `info` and `warn` lines never affect the exit
+code: a `warn` line is something to look at (a silent file, a hot peak, an offset that disagrees
+with the voiceover), not a failure. Numbers print with fixed decimals, and a value that rounds to
+zero prints as 0.0, never -0.0.
 
 ## Messages
 

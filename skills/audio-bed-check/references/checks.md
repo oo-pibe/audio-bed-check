@@ -60,6 +60,8 @@ Envelope: K-weighted level in half-second blocks every 0.1 s, the first and last
   loud crowd surges and comes back, and blocking on that would flatten exactly the recordings worth
   keeping.
 - `peak`: true peak, 4x oversampled, dBTP. A bed near 0 dBTP has no headroom under a mix.
+  A file peaking at or under -60 dBTP gets a `warn` line, "the file is silent": probably the wrong
+  file or a muted export. It does not change the verdict.
 
 What fails, measured on generated noise:
 
@@ -85,6 +87,22 @@ Inputs: the voiceover on its own and the rendered mix.
 3. Each run and gap is measured in the mix as the 90th percentile of 50 ms K-weighted blocks inside
    it; the percentile so a breath inside a run does not drag the figure down.
 4. Separation = mean over runs minus mean over gaps, in LU.
+
+The read needs pauses of 0.9 s or more: a gap is kept only if 0.4 s remains after the 0.25 s
+guards, so a read with no pause that long cannot be checked (exit 2). A room tone or hiss in the
+voiceover above `--gate` fills every pause the same way.
+
+Two user errors are caught. If the bed-only windows read -70 LKFS or less in the mix, the mix holds
+no bed (usually the voiceover was given as the mix) and the check stops with exit 2. And the
+voiceover's loudness envelope inside its speech runs is cross-correlated with the mix's, at 0.1 s
+resolution over plus or minus the mix's length; the best match is reported as
+`estimated_offset_s`, and when it is more than 0.2 s from `--vo-offset` a warning names it. A read
+with regular pauses matches nearly as well at several lags, so the given offset stands when its
+match is within 2% of the best.
+
+Not fixed, by design: speech windows are compared with un-ducked gaps, so a bed that is ducked
+under the speech barely moves the figure. Torcoli's LU difference is speech against the ducked
+background.
 
 This is voice-plus-bed against bed, which is what a listener hears and what WCAG describes, not the
 ratio of the two stems. It is also a K-weighted figure: a voice and a bed with different spectra

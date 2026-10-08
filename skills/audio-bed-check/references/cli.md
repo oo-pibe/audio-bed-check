@@ -79,12 +79,22 @@ never affect the exit code.
   exit 2.
 - "no speech found in the voiceover above -44 dBFS": nothing in the voiceover file crossed the gate
   for 250 ms. Exit 2. Check the file, or lower `--gate`.
-- "the voiceover has no gap of 0.4s or more between speech runs, so there is no bed-only window to
-  compare against": the read is continuous. Exit 2. The check needs pauses in the read.
+- "the voiceover has no pause of 0.9s or more between speech runs (0.4s after a 0.25s guard at each
+  end); either --vo is the mix rather than the voiceover alone, or its noise floor is above --gate":
+  no bed-only window could be found. Exit 2. The check needs pauses in the read of 0.9 s or more; a
+  room tone or hiss above `--gate` fills every pause, so raise `--gate` above it.
+- "the bed-only windows are silent in the mix; is MIX the rendered mix?": the windows between speech
+  runs read -70 LKFS or less in the mix, so the mix holds no bed. Usually the voiceover was given as
+  MIX. Exit 2.
 - "the voiceover's speech windows fall outside the mix; check --vo-offset": every speech window, or
   every gap window, shifted by the offset, lands outside the mix (before its start or past its
   end). Exit 2.
 - "mix true peak above -1 dBTP": a warning on the separation output; the mix has no headroom.
+- "the voiceover seems to start at Ns in the mix; check --vo-offset": a warning. The voiceover's
+  loudness envelope inside its speech runs was cross-correlated with the mix's, and the best match
+  is more than 0.2 s from `--vo-offset`. The figure is also in `--json` as `estimated_offset_s`
+  (0.1 s resolution). A read with regular pauses can match nearly as well at several lags; the given
+  offset stands when its match is within 2% of the best.
 - "N window(s) fall outside the mix; check --vo-offset": a warning; some speech or gap windows,
   shifted by the offset, landed before the start or past the end of the mix and were left out.
 - "ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG": exit 2.

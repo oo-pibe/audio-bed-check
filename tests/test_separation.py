@@ -58,7 +58,8 @@ def test_a_negative_offset_does_not_wrap_to_the_end_of_the_mix():
     with pytest.raises(NoSpeechError, match="fall outside the mix"):
         separation(vo, mix, SR, vo_offset=-30.0)
     r = separation(vo, mix, SR, vo_offset=-2.0)   # the first run starts before zero and is dropped
-    assert r.warnings == ("1 window(s) fall outside the mix; check --vo-offset",)
+    assert r.warnings == ("1 window(s) fall outside the mix; check --vo-offset",
+                          "the voiceover seems to start at 0.0s in the mix; check --vo-offset")
 
 
 def test_no_speech_is_an_error_not_a_fail():
@@ -68,8 +69,49 @@ def test_no_speech_is_an_error_not_a_fail():
 
 def test_no_gap_is_an_error():
     vo = noise(10)  # continuous speech, no gap
-    with pytest.raises(NoSpeechError, match="no gap of 0.4s or more"):
+    message = ("the voiceover has no pause of 0.9s or more between speech runs (0.4s after a 0.25s guard at "
+               "each end); either --vo is the mix rather than the voiceover alone, or its noise floor is "
+               "above --gate")
+    with pytest.raises(NoSpeechError) as e:
         separation(vo, vo, SR)
+    assert str(e.value) == message
+
+
+def test_the_voiceover_given_as_the_mix_is_an_error():
+    # the gaps of a voiceover are silence; measured as the mix it passed at 73 LU
+    vo, _ = mix_at(10.0)
+    message = r"^the bed-only windows are silent in the mix; is MIX the rendered mix\?$"
+    with pytest.raises(NoSpeechError, match=message):
+        separation(vo, vo, SR)
+
+
+def test_pauses_of_exactly_0_9_seconds_are_kept():
+    # 2 s runs every 2.9 s: each pause is 0.9 s, so each gap is 0.4 s after the guards, which float
+    # rounding once read as 0.39999 and dropped
+    runs = [(round(k * 2.9, 2), round(k * 2.9 + 2.0, 2)) for k in range(10)]
+    vo = gated(noise(30, 300, rms_dbfs=-30.0), runs)
+    found = speech_runs(vo, SR)
+    assert found == runs
+    assert len(gaps_between(found)) == 9
+    assert separation(vo, (vo + noise(30, 301, rms_dbfs=-45.0)).astype(np.float32), SR).gaps == 9
+
+
+def test_the_offset_is_estimated_and_a_wrong_one_is_named():
+    vo, mix = mix_at(10.0)
+    assert separation(vo, mix, SR).estimated_offset_s == pytest.approx(0.0, abs=0.05)
+    padded = np.concatenate([np.zeros(3 * SR, dtype=np.float32), mix])
+    wrong = separation(vo, padded, SR)
+    assert wrong.estimated_offset_s == pytest.approx(3.0, abs=0.05)
+    assert "the voiceover seems to start at 3.0s in the mix; check --vo-offset" in wrong.warnings
+    right = separation(vo, padded, SR, vo_offset=3.0)
+    assert right.warnings == ()
+
+
+def test_the_estimate_holds_over_a_bed_with_its_own_texture():
+    from tests.synth import textured
+    vo = gated(gain(noise(30, 400, rms_dbfs=-40.0), 10.0), RUNS)
+    mix = np.concatenate([np.zeros(2 * SR, dtype=np.float32), (textured(30, 401) * 0.01 + vo)])
+    assert separation(vo, mix.astype(np.float32), SR, vo_offset=2.0).warnings == ()
 
 
 def test_hot_mix_warns():
@@ -81,7 +123,8 @@ def test_hot_mix_warns():
 
 def test_windows_past_the_end_are_dropped_with_a_warning():
     vo, mix = mix_at(10.0)
-    # the mix ends at 20 s: the run at 21-24 s and the gap before it are out
+    # the mix ends at 20 s: the run at 21-24 s and the gap before it are out. The read pauses every 5 s,
+    # so -5 s matches the truncated mix as well as 0 does (8446 against 8445): the given offset stands
     r = separation(vo, mix[: 20 * SR], SR)
     assert r.warnings == ("2 window(s) fall outside the mix; check --vo-offset",)
     assert abs(r.separation_lu - expected(10.0)) < 1.0

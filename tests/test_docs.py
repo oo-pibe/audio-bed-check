@@ -14,7 +14,9 @@ SRC = ROOT / "src" / "audio_bed_check"
 MESSAGES = [
     "too short to test for a repeat longer than", "not flagged", "too short to measure level steps",
     "nothing to correlate", "min_period must be positive", "threshold must be between", "edge must be >= 0",
-    "no speech found in the voiceover above", "the voiceover has no gap of", "s or more between speech runs",
+    "no speech found in the voiceover above", "the voiceover has no pause of",
+    "the bed-only windows are silent in the mix", "the voiceover seems to start at",
+    "s or more between speech runs",
     "window(s) fall outside the mix", "speech windows fall outside the mix",
     "hop must be at least one sample", "must be a finite number, got", "must be a positive number, got",
     "must be zero or more, got", "must be between 0 (exclusive) and 1, got",

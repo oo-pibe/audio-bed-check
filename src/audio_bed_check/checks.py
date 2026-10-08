@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .loudness import HOP, WINDOW, block_loudness, k_weight, true_peak
+from .loudness import HOP, WINDOW, block_loudness, k_weight, momentary, true_peak
 
 # seconds; under this the 400 ms momentary window correlates neighbouring frames by itself
 LOOP_SHORTEST_LAG = 0.5
@@ -207,6 +207,11 @@ SEP_MIN_RUN = 0.25    # seconds; shortest stretch above the gate that counts as 
 SEP_GUARD = 0.25      # seconds trimmed from each end of a gap, so tails of speech do not leak in
 SEP_MIN_GAP = 0.4     # seconds; shortest usable bed-only window
 SEP_BLOCK = 0.05      # seconds; fine enough that a block never straddles the edge of a 250 ms run
+SEP_SILENT_LKFS = -70.0   # bed-only windows at or under this are silence: the mix holds no bed
+SEP_ALIGN_TOLERANCE = 0.2  # seconds; an estimated start further than this from vo_offset is named
+# a read with regular pauses matches the mix almost equally at several lags; the given offset stands
+# when its match is within this fraction of the best
+SEP_ALIGN_TIE = 0.02
 
 
 class NoSpeechError(ValueError):
@@ -219,9 +224,11 @@ class SeparationResult:
     """separation_lu: speech_lkfs minus bed_lkfs, where speech_lkfs is the mean over speech runs of
     each run's 90th-percentile 50 ms K-weighted level in the mix and bed_lkfs the same over the
     bed-only gaps; the only field that decides `passed`. runs/gaps count the windows found in the
-    voiceover, before any fall outside the mix. warnings (named so because they are actionable, unlike
-    the other checks' notes: a hot peak, windows dropped by the offset) never fail. Values are full
-    precision; the CLI rounds."""
+    voiceover, before any fall outside the mix. estimated_offset_s is where the voiceover's envelope
+    best matches the mix's (0.1 s resolution), None when either is under 0.4 s. warnings (named so
+    because they are actionable, unlike the other checks' notes: a hot peak, windows dropped by the
+    offset, an offset that disagrees with the estimate) never fail. Values are full precision; the
+    CLI rounds."""
 
     separation_lu: float
     speech_lkfs: float
@@ -231,6 +238,7 @@ class SeparationResult:
     peak_dbtp: float
     min_lu: float
     passed: bool
+    estimated_offset_s: float | None = None
     warnings: tuple[str, ...] = ()
 
 
@@ -238,8 +246,9 @@ class SeparationResult:
 def speech_runs(vo: np.ndarray, sr: int, gate_dbfs: float = -44.0) -> list[tuple[float, float]]:
     """(start, end) seconds of every stretch of the voiceover above the gate for at least SEP_MIN_RUN.
 
-    Mono or stereo: the gate reads the RMS over every sample of every channel in a hop, a power sum, so
-    a voice on one channel or in anti-phase still counts and identical channels read as mono.
+    Mono or stereo: the gate reads the RMS over every sample of every channel in a hop, the mean power
+    over channels (identical channels read as mono; a voice on one channel reads 3 dB lower), so a
+    voice on one channel or in anti-phase still counts. Run lengths are compared in whole hops.
     """
     x = np.asarray(vo, dtype=np.float64)
     h = int(round(SEP_GATE_HOP * sr))
@@ -249,27 +258,28 @@ def speech_runs(vo: np.ndarray, sr: int, gate_dbfs: float = -44.0) -> list[tuple
     rms = np.sqrt((x[:blocks * h] ** 2).reshape(blocks, -1).mean(axis=1))
     with np.errstate(divide="ignore"):
         loud = 20 * np.log10(rms) > gate_dbfs
+    shortest = math.ceil(SEP_MIN_RUN / SEP_GATE_HOP - 1e-9)   # hops; 0.25 s is 12.5, so 13
     runs, start = [], None
     # a plain scan: a 10-minute voiceover is 30,000 hops, nothing next to the K-weighting
     for i, on in enumerate(loud):
         if on and start is None:
             start = i
         elif not on and start is not None:
-            if (i - start) * SEP_GATE_HOP >= SEP_MIN_RUN:
+            if i - start >= shortest:
                 runs.append((round(start * SEP_GATE_HOP, 2), round(i * SEP_GATE_HOP, 2)))
             start = None
-    if start is not None and (blocks - start) * SEP_GATE_HOP >= SEP_MIN_RUN:
+    if start is not None and blocks - start >= shortest:
         runs.append((round(start * SEP_GATE_HOP, 2), round(blocks * SEP_GATE_HOP, 2)))
     return runs
 
 
 def gaps_between(runs: list[tuple[float, float]]) -> list[tuple[float, float]]:
     """Bed-only windows: the space between consecutive runs, trimmed by SEP_GUARD,
-    kept if SEP_MIN_GAP or longer."""
+    kept if SEP_MIN_GAP or longer (with an epsilon, so a 0.9 s pause is not lost to float rounding)."""
     gaps = []
     for (_, end), (start, _) in zip(runs, runs[1:], strict=False):
         a, b = end + SEP_GUARD, start - SEP_GUARD
-        if b - a >= SEP_MIN_GAP:
+        if b - a >= SEP_MIN_GAP - 1e-9:
             gaps.append((round(a, 2), round(b, 2)))
     return gaps
 
@@ -284,6 +294,39 @@ def _window_level(blocks: np.ndarray, t0: float, t1: float) -> float | None:
     return float(np.percentile(blocks[i0:i1], 90))
 
 
+def estimate_offset(vo: np.ndarray, mix: np.ndarray, sr: int, runs: list[tuple[float, float]],
+                    vo_offset: float = 0.0) -> float | None:
+    """Where the voiceover seems to start in the mix, seconds, at 0.1 s resolution; None when either
+    file is shorter than one 400 ms window.
+
+    Cross-correlates the momentary envelopes (LKFS, floored at -70 and with their means removed). The
+    voiceover's is kept only inside its speech runs and zero elsewhere, so the match is the shape of
+    the read: louder in the mix where the voice is, and the read's own texture. Lags run over plus or
+    minus the mix's length. A read with regular pauses matches at several lags almost equally, so
+    when the match at `vo_offset` is within SEP_ALIGN_TIE (2%) of the best, `vo_offset` (to the
+    nearest 0.1 s) is the estimate.
+    """
+    v = np.maximum(momentary(vo, sr), SEP_SILENT_LKFS)
+    m = np.maximum(momentary(mix, sr), SEP_SILENT_LKFS)
+    if len(v) == 0 or len(m) == 0:
+        return None
+    centres = np.arange(len(v)) * HOP + WINDOW / 2
+    inside = np.zeros(len(v), dtype=bool)
+    for a, b in runs:
+        inside |= (centres >= a) & (centres < b)
+    v = np.where(inside, v - v.mean(), 0.0)
+    m = m - m.mean()
+    corr = np.correlate(m, v, mode="full")   # index k is lag k - (len(v) - 1): m[j + lag] against v[j]
+    lags = np.arange(len(corr)) - (len(v) - 1)
+    keep = np.abs(lags) <= len(m)
+    corr, lags = corr[keep], lags[keep]
+    best = int(np.argmax(corr))
+    given = int(round(vo_offset / HOP)) - int(lags[0])
+    if 0 <= given < len(corr) and corr[given] >= corr[best] - SEP_ALIGN_TIE * abs(corr[best]):
+        best = given
+    return round(float(lags[best]) * HOP, 2)
+
+
 def separation(vo: np.ndarray, mix: np.ndarray, sr: int, *, min_lu: float = 10.0, gate_dbfs: float = -44.0,
                vo_offset: float = 0.0) -> SeparationResult:
     """Is the voice on top of the bed?
@@ -292,14 +335,20 @@ def separation(vo: np.ndarray, mix: np.ndarray, sr: int, *, min_lu: float = 10.0
     and compared with the bed-only gaps between them. The 90th percentile per window, so a breath
     inside a run does not drag the speech figure down. The result is what a listener hears, which is
     also what WCAG G56 describes, not the ratio of the two stems.
+
+    Bed-only windows at or under -70 LKFS mean the mix holds no bed (the voiceover given as the mix,
+    usually) and raise NoSpeechError. The voiceover's start in the mix is estimated from the two
+    envelopes; when it is more than 0.2 s from `vo_offset` a warning names it.
     """
     runs = speech_runs(vo, sr, gate_dbfs)
     if not runs:
         raise NoSpeechError(f"no speech found in the voiceover above {gate_dbfs:g} dBFS")
     gaps = gaps_between(runs)
     if not gaps:
-        raise NoSpeechError(f"the voiceover has no gap of {SEP_MIN_GAP:g}s or more between speech runs, "
-                            "so there is no bed-only window to compare against")
+        raise NoSpeechError(
+            f"the voiceover has no pause of {SEP_MIN_GAP + 2 * SEP_GUARD:g}s or more between speech runs "
+            f"({SEP_MIN_GAP:g}s after a {SEP_GUARD:g}s guard at each end); either --vo is the mix rather "
+            "than the voiceover alone, or its noise floor is above --gate")
     blocks = block_loudness(k_weight(mix, sr), sr, SEP_BLOCK, SEP_BLOCK)
     speech = [v for v in (_window_level(blocks, a + vo_offset, b + vo_offset) for a, b in runs)
               if v is not None]
@@ -307,13 +356,18 @@ def separation(vo: np.ndarray, mix: np.ndarray, sr: int, *, min_lu: float = 10.0
     if not speech or not bed:
         raise NoSpeechError("the voiceover's speech windows fall outside the mix; check --vo-offset")
     speech_lkfs, bed_lkfs = float(np.mean(speech)), float(np.mean(bed))
+    if bed_lkfs <= SEP_SILENT_LKFS:
+        raise NoSpeechError("the bed-only windows are silent in the mix; is MIX the rendered mix?")
     sep = speech_lkfs - bed_lkfs
     peak = true_peak(mix, sr)
+    estimate = estimate_offset(vo, mix, sr, runs, vo_offset)
     warnings: tuple[str, ...] = ()
     dropped = len(runs) + len(gaps) - len(speech) - len(bed)
     if dropped:
         warnings += (f"{dropped} window(s) fall outside the mix; check --vo-offset",)
+    if estimate is not None and abs(estimate - vo_offset) > SEP_ALIGN_TOLERANCE + 1e-9:
+        warnings += (f"the voiceover seems to start at {estimate:.1f}s in the mix; check --vo-offset",)
     if peak > -1.0:
         warnings += ("mix true peak above -1 dBTP",)
     return SeparationResult(sep, speech_lkfs, bed_lkfs, len(runs), len(gaps), peak, min_lu, sep >= min_lu,
-                            warnings)
+                            estimate, warnings)

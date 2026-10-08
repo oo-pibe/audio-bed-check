@@ -125,7 +125,7 @@ def test_separation_json_shape(wavs, capsys):
     assert set(data[0]) == {"file", "passed", "profile", "separation"}
     assert set(data[0]["separation"]) == {
         "separation_lu", "speech_lkfs", "bed_lkfs", "runs", "gaps", "peak_dbtp", "min_lu", "passed",
-        "warnings",
+        "estimated_offset_s", "warnings",
     }
 
 

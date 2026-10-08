@@ -13,7 +13,7 @@ noise to scores between 0.88 and 0.97, some under the threshold; textured loops 
 AAC and MP3.
 
 A 10-minute mono file takes about 2 s for `bed` and about 1.3 GB of memory; an hour takes about
-35 s and 3.7 GB. A `warn` line never changes the exit code.
+40 s and 4 GB. A `warn` line never changes the exit code.
 
 ## loop
 

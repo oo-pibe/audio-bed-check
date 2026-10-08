@@ -152,3 +152,15 @@ def fade(x: np.ndarray, seconds: float = 0.01, sr: int = SR) -> np.ndarray:
     y[:n] *= ramp
     y[-n:] *= ramp[::-1]
     return y
+
+
+def irregular_read(seconds: float, seed: int = 0) -> list[tuple[float, float]]:
+    """Speech-like timing with no regular cadence: runs of 0.6-3 s, pauses of 0.95-1.5 s, seeded."""
+    rng = np.random.default_rng(seed)
+    runs, t = [], 0.5 + rng.uniform(0.0, 1.0)
+    while True:
+        end = t + rng.uniform(0.6, 3.0)
+        if end > seconds - 0.5:
+            return runs
+        runs.append((round(t, 3), round(end, 3)))
+        t = end + rng.uniform(0.95, 1.5)

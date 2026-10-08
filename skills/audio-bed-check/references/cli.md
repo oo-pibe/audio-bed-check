@@ -19,7 +19,8 @@ more than two channels are downmixed to two by ffmpeg; only the first audio trac
   - `steps`: `step_db`, `step_at_s` (null when too short or nothing changed), `range_db`,
     `transient_db`, `peak_dbtp`, `max_step`, `passed`, `notes`.
   - `separation`: `separation_lu`, `speech_lkfs`, `bed_lkfs`, `runs`, `gaps`, `peak_dbtp`,
-    `min_lu`, `passed`, `estimated_offset_s` (null when either file is under 0.4 s), `warnings`.
+    `min_lu`, `passed`, `estimated_offset_s` (null when either file is under 0.4 s or the match is too weak to trust),
+    `warnings`.
   - top level, separation only: `profile`, the profile name, or `--min-separation` when that flag
     replaced it.
 
@@ -77,10 +78,12 @@ zero prints as 0.0, never -0.0.
   period was found. Passes. Lower `--min-period` if you want it flagged.
 - "too short to measure level steps (needs at least 6.5s)": fewer than 45 half-second blocks (one
   every 0.1 s) remain after the edges are dropped; 6.5 s at the default edge. Passes, with zeros.
-- "no level change anywhere": the steps check on digital silence, or on a file whose every block is
-  under -70 LKFS (counted as -70 for the step); every boundary measures 0.0 dB, so no place is
-  named. Passes.
-- "the file is silent (peak under -60 dBTP)": a `warn` line under the steps output (in `--json`, the
+- "no level change anywhere": the steps check on digital silence or a constant tone; every boundary
+  measures 0.0 dB, so no place is named. Passes.
+- "every block is under -70 LKFS; nothing to measure": the steps check on a file that varies but
+  whose every block is under -70 LKFS, counted as -70 for the step, so every boundary measures
+  0.0 dB. Passes.
+- "the file is silent (peak at or under -60 dBTP)": a `warn` line under the steps output (in `--json`, the
   last entry of the steps `notes`). The file peaks at or under -60 dBTP: probably the wrong file, a
   muted export or a bed rendered at the wrong gain. It does not change the verdict or the exit code.
 - "level is constant; nothing to correlate": the loop check on digital silence or a constant tone
@@ -116,7 +119,10 @@ zero prints as 0.0, never -0.0.
   loudness envelope inside its speech runs was cross-correlated with the mix's, and the best match
   is more than 0.2 s from `--vo-offset`. The figure is also in `--json` as `estimated_offset_s`
   (0.1 s resolution). A read with regular pauses can match nearly as well at several lags; the given
-  offset stands when its match is within 2% of the best.
+  offset stands when its match is within 2% of the best. The estimate is trusted only when, at the
+  lag found, the voiceover's level inside its speech runs and the mix's level at the same moments
+  correlate at 0.5 or more; a voice buried under the bed matches at chance lags, so then
+  `estimated_offset_s` is null and this warning is not given.
 - "N window(s) fall outside the mix; check --vo-offset": a warning; some speech or gap windows,
   shifted by the offset, landed before the start or past the end of the mix and were left out.
 - "ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG": exit 2.

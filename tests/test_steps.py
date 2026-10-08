@@ -102,15 +102,15 @@ def test_a_flat_bed_names_no_place():
     r = level_steps(np.zeros(20 * SR, dtype=np.float32), SR)
     assert r.passed and r.step_db == 0.0
     assert r.step_at_s is None
-    assert r.notes == ("no level change anywhere", "the file is silent (peak under -60 dBTP)")
+    assert r.notes == ("no level change anywhere", "the file is silent (peak at or under -60 dBTP)")
 
 
 def test_a_silent_file_says_so():
     quiet = noise(20, 19, rms_dbfs=-75.0)   # peaks near -63 dBTP; every block is under the -70 floor
-    silent = "the file is silent (peak under -60 dBTP)"
-    assert level_steps(quiet, SR).notes == ("no level change anywhere", silent)
+    silent = "the file is silent (peak at or under -60 dBTP)"
+    assert level_steps(quiet, SR).notes == ("every block is under -70 LKFS; nothing to measure", silent)
     short = level_steps(noise(4, 19, rms_dbfs=-75.0), SR)
-    assert short.notes[-1] == "the file is silent (peak under -60 dBTP)"
+    assert short.notes[-1] == silent
     assert level_steps(noise(20, 19, rms_dbfs=-65.0), SR).notes == ()
 
 

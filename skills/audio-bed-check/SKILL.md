@@ -24,8 +24,8 @@ ffmpeg, unreadable file, no speech found). `warn` lines (a silent file, a hot pe
 disagrees with the voiceover) never change the exit code; a `warn` line is something to look at. Add `--json` to get the numbers as a list
 of objects; `--edge`, `--gate` and `--vo-offset` are not recorded in it.
 
-Check the bed before it is encoded: lossy codecs rebuild noise-like content differently on each
-pass, so an exact loop of steady room tone can drop under 0.9 after AAC and pass. `loop` needs 13 s
+Check the bed before it is encoded: ffmpeg's AAC at 128k rebuilt exact loops of steady noise to
+scores between 0.88 and 0.97, some under the threshold. `loop` needs 13 s
 and `steps` 6.5 s at the defaults; a shorter file reports ok with a note, not a verdict.
 
 ## Reading the result
@@ -45,7 +45,8 @@ and `steps` 6.5 s at the defaults; a shorter file reports ok with a note, not a 
 - `separation`: the mix inside the voiceover's speech windows against the bed-only gaps between
   them, in LU. Fails under the profile's minimum: `music` 10, `ambience` 15, `wcag` 20. The read
   needs pauses of 0.9 s or more. When the voiceover seems to start somewhere other than
-  `--vo-offset` (more than 0.2 s off), a `warn` line names where; rerun with that offset. A bed
+  `--vo-offset` (more than 0.2 s off), a `warn` line names where; rerun with that offset. A voice
+  too far under the bed to match gives no estimate and no warning. A bed
   ducked under the speech barely changes the figure, so treat the floors as approximate for ducked
   mixes.
 

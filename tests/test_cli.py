@@ -55,7 +55,7 @@ def test_batch_keeps_going_and_reports_every_file(wavs, capsys):
     assert cli.main(["bed", str(wavs["stepped"]), str(wavs["clean"])]) == 1
     out = capsys.readouterr().out
     assert str(wavs["stepped"]) in out and str(wavs["clean"]) in out
-    assert "FAIL  step        7.05 dB at 30.1s (max 6.00)" in out
+    assert "FAIL  step        7.05 dB at 30.05s (max 6.00)" in out
     assert out.count("ok    loop") == 2 and out.count("ok    step") == 1
 
 
@@ -64,7 +64,7 @@ def test_a_silent_bed_renders_without_crashing(wavs, capsys):
     out = capsys.readouterr().out
     assert "ok    loop        0.00 (level is constant; nothing to correlate)" in out
     assert "ok    step        no level change anywhere" in out
-    assert "  warn  the file is silent (peak under -60 dBTP)" in out
+    assert "  warn  the file is silent (peak at or under -60 dBTP)" in out
     assert "ok    step        the file is silent" not in out
 
 
@@ -258,7 +258,7 @@ def test_every_printed_number_drops_the_minus_from_zero():
     out = cli._render(entry)
     assert "-0.0" not in out
     assert "range       0.0 dB   transient 0.0 dB   peak 0.0 dBTP" in out
-    assert "loop        0.00 (" in out and "step        0.00 dB at 12.0s" in out
+    assert "loop        0.00 (" in out and "step        0.00 dB at 12.00s" in out
     assert cli._num(-0.03, 1) == "0.0" and cli._num(-0.004, 2) == "0.00" and cli._num(-0.06, 1) == "-0.1"
 
 

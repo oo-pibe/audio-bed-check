@@ -23,20 +23,19 @@ audio-bed-check separation final.mp4 --vo read.wav
 ```
 ambience.wav
   FAIL  loop        1.00 (repeats every 12.0s, at or above 0.90)
-  ok    step        1.42 dB at 18.5s (max 6.00)
+  ok    step        1.42 dB at 18.45s (max 6.00)
   info  range       6.2 dB   transient 3.1 dB   peak -3.4 dBTP
 ```
 
 Exit 0 when every check passes, 1 when any fails, 2 when it could not run (a bad flag, an unreadable
-file, no speech found in the voiceover). A `warn` line, such as a file peaking under -60 dBTP or a
+file, no speech found in the voiceover). A `warn` line, such as a file peaking at or under -60 dBTP or a
 voiceover that seems to start somewhere other than `--vo-offset`, never changes the exit code.
 `--json` prints the numbers as a list of objects; the field list is in the command reference.
 `python -m audio_bed_check` is the same command.
 
-Check the bed before it is encoded. Lossy codecs rebuild noise-like content differently on each
-pass; an exact loop of steady room tone scored 1.00 as WAV and between 0.51 and 0.97 after
-ffmpeg's built-in AAC at 128k, depending on the ffmpeg build, and textured loops still score above
-0.9 after AAC or MP3.
+Check the bed before it is encoded. ffmpeg's built-in AAC at 128k rebuilt exact loops of steady
+noise to scores between 0.88 and 0.97, some under the threshold; textured loops stayed at 1.00 after
+AAC and MP3.
 
 A 10-minute mono file takes about 2 s for `bed` and about 1.3 GB of memory; an hour takes about
 35 s and 3.7 GB.
@@ -66,7 +65,7 @@ window are measured in the mix, so the figure is voice plus bed against bed, whi
 a listener hears than the gain on each stem. Profiles set the minimum: `music` 10 LU (the default),
 `ambience` 15 LU, `wcag` 20 LU. The read needs pauses of 0.9 seconds or more. The voiceover's start
 in the mix is estimated from the two envelopes, and a warning names it when it is more than 0.2 s
-from `--vo-offset`; a mix whose bed-only windows are silent (the voiceover passed as the mix) is
+from `--vo-offset` (no estimate, and no warning, when the voice is too far under the bed to match); a mix whose bed-only windows are silent (the voiceover passed as the mix) is
 refused.
 
 The check compares speech windows with the bed in the gaps between them, so a bed that is ducked

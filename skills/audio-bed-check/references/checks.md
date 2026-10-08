@@ -8,10 +8,9 @@ Files keep their channels: mono stays mono, stereo is measured per channel and s
 BS.1770 does, more than two channels are downmixed to two by ffmpeg; only the first audio track is
 read. Every file is decoded to 48 kHz.
 
-Check the bed before it is encoded. Lossy codecs rebuild noise-like content differently on each
-pass; an exact loop of steady room tone scored 1.00 as WAV and between 0.51 and 0.97 after
-ffmpeg's built-in AAC at 128k, depending on the ffmpeg build, and textured loops still score above
-0.9 after AAC or MP3.
+Check the bed before it is encoded. ffmpeg's built-in AAC at 128k rebuilt exact loops of steady
+noise to scores between 0.88 and 0.97, some under the threshold; textured loops stayed at 1.00 after
+AAC and MP3.
 
 A 10-minute mono file takes about 2 s for `bed` and about 1.3 GB of memory; an hour takes about
 35 s and 3.7 GB. A `warn` line never changes the exit code.
@@ -69,7 +68,9 @@ Envelope: K-weighted level in half-second blocks every 0.1 s, the first and last
 - `step`: at every 0.1 s boundary, the mean of the 2 s of blocks after a 0.5 s transition gap
   against the 2 s of blocks before it; the largest absolute difference. Fails above `--max-step`
   (6 dB). The gap keeps every block on both sides clear of the join, so the reading does not depend
-  on where the join falls between blocks, and the time printed names the join to within 0.05 s.
+  on where the join falls between blocks, and the time printed names the join to within 0.05 s;
+  a join inside the first 2.5 s run-up is reported at the first measurable boundary (3.25 s from
+  either end at the default edge).
   A hard join shifts the level and it stays shifted. Blocks under -70 LKFS count as -70 for the
   step, so noise far below anything audible cannot fail a file; a bed coming in out of silence is
   still a step.
@@ -87,8 +88,8 @@ What fails, measured on generated noise:
   0.5 s, 3.9 held 1 s, 5.7 held 1.5 s, 6.8 held 2 s and 7.0 held 3 s.
 - A +7 dB raised-cosine swell passes: 5.6 dB at 4 s wide, 3.6 at 2 s wide.
 - A 10 dB ramp reads 5.0 dB over 5 s and 0.9 over 30 s; both pass. A slow fade is not a join.
-- Two +4 dB steps 1 s apart (8 dB louder and staying louder) read 6.9 and fail.
-- A join of 6.1 dB reads 6.1 wherever it falls between blocks.
+- Two +4 dB steps 1 s apart (8 dB louder and staying louder) read about 7 dB and fail.
+- A join of 6.1 dB reads 6.05–6.16 and fails.
 
 Needs at least 6.5 seconds of audio at the default edge (45 blocks after the edges are dropped; the
 message states the figure for the edge in use). A shorter file reports ok with a note. A join less
@@ -107,7 +108,7 @@ Inputs: the voiceover on its own and the rendered mix.
 4. Separation = mean over runs minus mean over gaps, in LU.
 
 The read needs pauses of 0.9 s or more: a gap is kept only if 0.4 s remains after the 0.25 s
-guards, so a read with no pause that long cannot be checked (exit 2). A room tone or hiss in the
+guards, less one 20 ms gate hop because a pause that starts between hops measures a hop short, so a read with no pause that long cannot be checked (exit 2). A room tone or hiss in the
 voiceover above `--gate` fills every pause the same way.
 
 Two user errors are caught. If the bed-only windows read -70 LKFS or less in the mix, the mix holds
@@ -116,7 +117,11 @@ voiceover's loudness envelope inside its speech runs is cross-correlated with th
 resolution over plus or minus the mix's length; the best match is reported as
 `estimated_offset_s`, and when it is more than 0.2 s from `--vo-offset` a warning names it. A read
 with regular pauses matches nearly as well at several lags, so the given offset stands when its
-match is within 2% of the best.
+match is within 2% of the best. The estimate is trusted only when, at the lag found, the
+voiceover's level inside its speech runs and the mix's level at the same moments correlate at 0.5
+or more (Pearson); otherwise `estimated_offset_s` is null and there is no warning. A voice 10 dB
+under a textured bed read 0.32 or less and matched at lags up to 14 s from the right one; a voice
+level with the bed read 0.40 to 0.73, and one 10 dB over it 0.99.
 
 The check compares speech windows with the bed in the gaps between them, so a bed that is ducked
 under speech barely changes the figure. Torcoli et al. measured speech against the ducked

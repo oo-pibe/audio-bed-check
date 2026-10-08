@@ -171,7 +171,7 @@ def _render(entry: dict) -> str:
             lines.append(f"  {_verdict(r['passed'])}  step        {detail}")
         else:
             lines.append(f"  {_verdict(r['passed'])}  step        {_num(r['step_db'], 2)} dB at "
-                         f"{_num(r['step_at_s'], 1)}s (max {_num(r['max_step'], 2)})")
+                         f"{_num(r['step_at_s'], 2)}s (max {_num(r['max_step'], 2)})")
         lines.append(f"  info  range       {_num(r['range_db'], 1)} dB   "
                      f"transient {_num(r['transient_db'], 1)} dB   peak {_num(r['peak_dbtp'], 1)} dBTP")
         if SILENT_NOTE in r["notes"]:

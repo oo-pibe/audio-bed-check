@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from audio_bed_check.checks import NoSpeechError, SeparationResult, gaps_between, separation, speech_runs
-from tests.synth import SR, gain, gated, noise
+from tests.synth import SR, gain, gated, irregular_read, noise, textured
 
 RUNS = [(1.0, 4.0), (6.0, 9.0), (11.0, 14.0), (16.0, 19.0), (21.0, 24.0)]
 
@@ -96,6 +96,72 @@ def test_pauses_of_exactly_0_9_seconds_are_kept():
     assert separation(vo, (vo + noise(30, 301, rms_dbfs=-45.0)).astype(np.float32), SR).gaps == 9
 
 
+@pytest.mark.parametrize("start", [0.01, 0.03, 0.07, 0.13])
+def test_a_0_9_second_pause_off_the_gate_grid_is_kept(start):
+    # off the 20 ms grid a run's end rounds up a hop and the next start rounds down, so the pause
+    # measures 0.88 s; it was dropped in 9 of 10 phases
+    runs = [(round(start + k * 2.9, 3), round(start + k * 2.9 + 2.0, 3)) for k in range(10)]
+    found = speech_runs(gated(noise(30, 310, rms_dbfs=-30.0), runs), SR)
+    assert len(found) == 10
+    assert len(gaps_between(found)) == 9
+
+
+@pytest.mark.parametrize("start", [0.0, 0.01, 0.03, 0.07, 0.13])
+def test_a_0_85_second_pause_is_not_kept(start):
+    runs = [(round(start + k * 2.85, 3), round(start + k * 2.85 + 2.0, 3)) for k in range(10)]
+    found = speech_runs(gated(noise(30, 311, rms_dbfs=-30.0), runs), SR)
+    assert len(found) == 10
+    assert gaps_between(found) == []
+
+
+def _rms_db(x):
+    return 20 * np.log10(np.sqrt(np.mean(np.asarray(x, dtype=np.float64) ** 2)))
+
+
+def irregular_mix(vo_over_bed_db: float, seed: int, pad: float = 0.0):
+    """An irregular read placed `pad` seconds into a textured bed that runs the whole mix."""
+    runs = irregular_read(30, seed)
+    bed = textured(30 + pad, 600 + seed)
+    bed = gain(bed, -30.0 - _rms_db(bed))
+    vo = gated(gain(noise(30, 500 + seed, rms_dbfs=-30.0), vo_over_bed_db), runs)
+    placed = np.concatenate([np.zeros(int(pad * SR), dtype=np.float32), vo])
+    return vo, (bed + placed).astype(np.float32)
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_a_buried_voice_gives_no_estimate_and_no_warning(seed):
+    # 10 dB under a textured bed the envelopes matched best at lags up to 14 s away
+    vo, mix = irregular_mix(-10.0, seed)
+    r = separation(vo, mix, SR)
+    assert r.estimated_offset_s is None
+    assert not any("seems to start" in w for w in r.warnings)
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_a_clear_voice_is_still_found_three_seconds_in(seed):
+    vo, mix = irregular_mix(10.0, seed, pad=3.0)
+    r = separation(vo, mix, SR)
+    assert r.estimated_offset_s == pytest.approx(3.0, abs=0.05)
+    assert "the voiceover seems to start at 3.0s in the mix; check --vo-offset" in r.warnings
+    assert separation(vo, mix, SR, vo_offset=3.0).warnings == ()
+
+
+def test_separation_k_weights_each_file_once(monkeypatch):
+    import audio_bed_check.checks as checks
+    import audio_bed_check.loudness as loudness
+    calls = []
+    real = loudness.k_weight
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+    monkeypatch.setattr(checks, "k_weight", counting)
+    monkeypatch.setattr(loudness, "k_weight", counting)
+    vo, mix = mix_at(10.0)
+    separation(vo, mix, SR)
+    assert len(calls) == 2   # the mix once, the voiceover once
+
+
 def test_the_offset_is_estimated_and_a_wrong_one_is_named():
     vo, mix = mix_at(10.0)
     assert separation(vo, mix, SR).estimated_offset_s == pytest.approx(0.0, abs=0.05)
@@ -108,7 +174,6 @@ def test_the_offset_is_estimated_and_a_wrong_one_is_named():
 
 
 def test_the_estimate_holds_over_a_bed_with_its_own_texture():
-    from tests.synth import textured
     vo = gated(gain(noise(30, 400, rms_dbfs=-40.0), 10.0), RUNS)
     mix = np.concatenate([np.zeros(2 * SR, dtype=np.float32), (textured(30, 401) * 0.01 + vo)])
     assert separation(vo, mix.astype(np.float32), SR, vo_offset=2.0).warnings == ()

@@ -41,14 +41,14 @@ def wavs(tmp_path, monkeypatch):
 def test_clean_bed_passes(wavs, capsys):
     assert cli.main(["bed", str(wavs["clean"])]) == 0
     out = capsys.readouterr().out
-    assert "ok    loop" in out and "no repeat at or above 0.75" in out
+    assert "ok    loop" in out and "no repeat at or above 0.90" in out
     assert "ok    step" in out and "info  range" in out
 
 
 def test_looped_bed_fails_and_names_the_period(wavs, capsys):
     assert cli.main(["loop", str(wavs["looped"])]) == 1
     out = capsys.readouterr().out
-    assert "FAIL  loop        1.00 (repeats every 12.0s, at or above 0.75)" in out
+    assert "FAIL  loop        1.00 (repeats every 12.0s, at or above 0.90)" in out
 
 
 def test_batch_keeps_going_and_reports_every_file(wavs, capsys):

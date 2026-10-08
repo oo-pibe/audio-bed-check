@@ -9,6 +9,7 @@ from importlib.metadata import version as _version
 
 from .checks import level_steps, loop_score, separation
 from .decode import DecodeError, decode
+from .loudness import k_weight
 
 PROFILES = {"music": 10.0, "ambience": 15.0, "wcag": 20.0}
 OVERRIDE = "--min-separation"   # what the profile column says when the flag replaced the profile
@@ -60,8 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--min-period", type=_positive, default=6.0, metavar="S",
                         help="shortest repeat length that counts as a loop, seconds "
                              "(default 6; shorter repeats are noted)")
-        sp.add_argument("--loop-threshold", type=_score, default=0.75, metavar="SCORE",
-                        help="autocorrelation score at which a repeat fails, 0 to 1 (default 0.75)")
+        sp.add_argument("--loop-threshold", type=_score, default=0.9, metavar="SCORE",
+                        help="correlation at which a repeat fails, 0 to 1 (default 0.9)")
 
     def steps_flags(sp):
         sp.add_argument("--max-step", type=_positive, default=6.0, metavar="DB",
@@ -125,12 +126,14 @@ def _run(args) -> list[dict]:
             results.append({"file": path, "passed": False, "error": str(e)})
             continue
         entry = {"file": path, "passed": True}
+        weighted = k_weight(samples, sr)   # once per file, shared by both checks
         if args.command in ("loop", "bed"):
-            r = loop_score(samples, sr, min_period=args.min_period, threshold=args.loop_threshold)
+            r = loop_score(samples, sr, min_period=args.min_period, threshold=args.loop_threshold,
+                           weighted=weighted)
             entry["loop"] = _result(r)
             entry["passed"] = entry["passed"] and r.passed
         if args.command in ("steps", "bed"):
-            r = level_steps(samples, sr, max_step=args.max_step, edge=args.edge)
+            r = level_steps(samples, sr, max_step=args.max_step, edge=args.edge, weighted=weighted)
             entry["steps"] = _result(r)
             entry["passed"] = entry["passed"] and r.passed
         results.append(entry)

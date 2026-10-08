@@ -5,25 +5,23 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .loudness import HOP, block_loudness, k_weight, momentary, true_peak
+from .loudness import HOP, WINDOW, block_loudness, k_weight, true_peak
 
 # seconds; under this the 400 ms momentary window correlates neighbouring frames by itself
 LOOP_SHORTEST_LAG = 0.5
 # a loop correlates at every multiple of its period; the fundamental is the shortest peak within
 # this of the strongest, so a half-period peak cannot name the repeat
 LOOP_PEAK_TOLERANCE = 0.05
-# frames (5 s at the 100 ms hop); the least overlap the extended-lag test correlates over
-LOOP_MIN_OVERLAP = 50
-# a clip repeated once correlates at ~1.0 over its overlap; short overlaps of unlooped beds reach 0.74
-# by chance (worst of 600 generated beds), so lags past half the file need this much
-LOOP_EXTENDED_THRESHOLD = 0.95
-LOOP_EXTENDED_NOTE = "found by the extended-lag test: the clip was repeated once to fill the file"
+LOOP_WINDOW = 100      # frames (10 s) of envelope changes correlated at a time
+LOOP_MIN_WINDOW = 30   # frames; files under 30 s use a third of their length, never less than this
+LOOP_STRIDE = 5        # frames between window starts
 
 
 @dataclass(frozen=True)
 class LoopResult:
-    """score: autocorrelation at period_s, 1.0 being an exact repeat. When nothing reached the
-    threshold, score is the best value in the flaggable range and period_s is None."""
+    """score: Pearson correlation of the envelope's frame-to-frame changes at period_s, over the
+    best-matching 10 s window; 1.0 is an exact repeat. When nothing reached the threshold, score is
+    the strongest local maximum at lags of min_period_s or more and period_s is None."""
 
     score: float
     period_s: float | None
@@ -33,80 +31,100 @@ class LoopResult:
     notes: tuple[str, ...] = ()
 
 
-def _detrend(env: np.ndarray) -> np.ndarray:
-    """The envelope with its linear trend removed, so a long fade does not correlate at every lag."""
-    t = np.arange(len(env))
-    return env - np.polyval(np.polyfit(t, env, 1), t)
+def _weighted(samples: np.ndarray, sr: int, weighted: np.ndarray | None) -> np.ndarray:
+    """The caller's K-weighted signal, or k_weight(samples, sr) when there is none."""
+    if weighted is None:
+        return k_weight(samples, sr)
+    if np.shape(weighted) != np.shape(samples):
+        raise ValueError("weighted must be k_weight(samples, sr): same shape as samples")
+    return weighted
 
 
-def _autocorrelation(env: np.ndarray) -> np.ndarray:
-    """Unbiased, normalised autocorrelation of an already detrended envelope, by FFT. A perfect repeat
-    scores 1.0."""
-    n = len(env)
-    size = 1
-    while size < 2 * n:
-        size <<= 1
-    spectrum = np.fft.rfft(env, size)
-    ac = np.fft.irfft(spectrum * np.conj(spectrum), size)[:n]
-    ac = ac / (n - np.arange(n))
-    return ac / ac[0] if ac[0] > 0 else np.zeros(n)
+def _lag_scores(d: np.ndarray, window: int, first: int, last: int) -> np.ndarray:
+    """For each lag k in first..last, the best Pearson correlation of d[s:s+window] with
+    d[s+k:s+k+window] over window starts s every LOOP_STRIDE frames. Window sums come from cumulative
+    sums, so one lag is O(len(d)) in numpy. A window with no variation cannot win (scores -1)."""
+    m = len(d)
+    c1 = np.concatenate([[0.0], np.cumsum(d)])
+    c2 = np.concatenate([[0.0], np.cumsum(d * d)])
+    scores = np.full(last - first + 1, -1.0)
+    # a loop over lags, all numpy inside: measured 0.3 s for a 10-minute bed, 4 s for an hour
+    for i, k in enumerate(range(first, last + 1)):
+        s = np.arange(0, m - k - window + 1, LOOP_STRIDE)
+        cp = np.concatenate([[0.0], np.cumsum(d[:m - k] * d[k:])])
+        sa, sb = c1[s + window] - c1[s], c1[s + k + window] - c1[s + k]
+        va = c2[s + window] - c2[s] - sa * sa / window
+        vb = c2[s + k + window] - c2[s + k] - sb * sb / window
+        cov = cp[s + window] - cp[s] - sa * sb / window
+        ok = (va > 1e-12) & (vb > 1e-12)
+        if ok.any():
+            scores[i] = float((cov[ok] / np.sqrt(va[ok] * vb[ok])).max())
+    return scores
 
 
 def loop_score(
-    samples: np.ndarray, sr: int, *, min_period: float = 6.0, threshold: float = 0.75
+    samples: np.ndarray, sr: int, *, min_period: float = 6.0, threshold: float = 0.9,
+    weighted: np.ndarray | None = None,
 ) -> LoopResult:
     """Does the bed repeat itself?
 
-    Finds the fundamental repeat: among the lags (0.5 s or more) where the loudness envelope's
-    autocorrelation peaks at or above `threshold`, the shortest one within LOOP_PEAK_TOLERANCE of the
-    strongest, searched up to half the file. A fundamental shorter than `min_period` is music-like (a
+    Works on d, the frame-to-frame changes of the momentary loudness (dB, 100 ms hop). A copied clip
+    copies its fine texture, so d repeats exactly where the audio repeats, while a fade or a gain
+    change moves the level and barely touches d. For every lag from 0.5 s to the file length minus
+    one window, the score is the best Pearson correlation of a 10 s window of d with the window that
+    many frames later (window starts every 0.5 s; a third of the file, at least 3 s, under 30 s).
+    So a repeat is found even when only part of the file loops, and the longest repeat that can be
+    found is the file length minus the window (about 10.5 s less than the file). Lags resolve in
+    0.1 s steps.
+
+    The fundamental is the shortest lag whose score is a local maximum at or above `threshold` and
+    within LOOP_PEAK_TOLERANCE of the strongest such peak. Under `min_period` it is music-like (a
     bar) and becomes a note; at or above it, the file is a loop and fails. With no peak at the
-    threshold, the lags from half the file to the file length minus LOOP_MIN_OVERLAP (or minus
-    `min_period`, if longer) are tested by the Pearson correlation of the frame-to-frame changes in
-    the two overlapping stretches of envelope: a clip repeated once to fill the file scores about 1.0
-    there, and at or above LOOP_EXTENDED_THRESHOLD the file fails. Otherwise the score is the best
-    autocorrelation in the flaggable range and the file passes.
+    threshold, the score is the strongest local maximum at lags of `min_period` or more and the file
+    passes.
+
+    `weighted` is the K-weighted signal (`k_weight(samples, sr)`) if the caller has it already, so a
+    file is filtered once for several checks.
     """
     if min_period <= 0:
         raise ValueError("min_period must be positive")
     if not 0 < threshold <= 1:
         raise ValueError("threshold must be between 0 (exclusive) and 1")
-    duration = len(samples) / sr
-    if duration < 2 * min_period + 1:
-        return LoopResult(0.0, None, threshold, min_period, True,
-                          (f"too short to test for a repeat longer than {min_period:g}s",))
-    env = momentary(samples, sr)
+    too_short = LoopResult(0.0, None, threshold, min_period, True,
+                           (f"too short to test for a repeat longer than {min_period:g}s",))
+    if len(samples) / sr < 2 * min_period + 1:
+        return too_short
+    env = block_loudness(_weighted(samples, sr, weighted), sr, WINDOW, HOP)
     if np.ptp(env) < 0.01:   # silence or a constant tone; a steady bed still varies by tenths of a dB
         return LoopResult(0.0, None, threshold, min_period, True,
                           ("level is constant; nothing to correlate",))
-    env = _detrend(env)
-    ac = _autocorrelation(env)
-    n = len(ac)
-    first, lo, hi = int(round(LOOP_SHORTEST_LAG / HOP)), int(round(min_period / HOP)), n // 2
-    # a plain scan: a 10-minute bed is 3,000 lags, nothing next to the K-weighting
-    peaks = [k for k in range(first, hi)
-             if ac[k] >= threshold and ac[k] >= ac[k - 1] and ac[k] >= ac[k + 1]]
-    if not peaks:
-        extended = range(hi, n - max(lo, LOOP_MIN_OVERLAP) + 1)
-        if extended:
-            # frame-to-frame changes, not levels: a step halfway would otherwise leave two matching
-            # ramps after detrending and read as a repeat. A copied clip copies its fine texture.
-            # nan_to_num: a stretch with no variation at all has no correlation, so it cannot win
-            d = np.diff(env)
-            r, k = max((float(np.nan_to_num(np.corrcoef(d[:n - 1 - k], d[k:])[0, 1], nan=-1.0)), k)
-                       for k in extended)
-            if r >= LOOP_EXTENDED_THRESHOLD and k >= lo:
-                return LoopResult(min(r, 1.0), round(k * HOP, 2), threshold, min_period, False,
-                                  (LOOP_EXTENDED_NOTE,))
-        return LoopResult(min(float(ac[lo:hi].max()), 1.0), None, threshold, min_period, True)
-    best = max(ac[p] for p in peaks)
-    k = next(p for p in peaks if ac[p] >= best - LOOP_PEAK_TOLERANCE)
+    d = np.diff(env)
+    window = min(LOOP_WINDOW, max(LOOP_MIN_WINDOW, len(env) // 3))
+    first, lo = int(round(LOOP_SHORTEST_LAG / HOP)), int(round(min_period / HOP))
+    last = len(d) - window
+    if last < max(lo, first + 2):
+        return too_short
+    scores = _lag_scores(d, window, first, last)
+    lags = np.arange(first, last + 1)
+    # local maxima; never the first lag, whose only neighbour is on one side, and the last lag only
+    # if it is at least its neighbour, since a repeat can sit right at the end of the range
+    is_peak = np.zeros(len(scores), dtype=bool)
+    is_peak[1:-1] = (scores[1:-1] >= scores[:-2]) & (scores[1:-1] >= scores[2:])
+    is_peak[-1] = scores[-1] >= scores[-2]
+    peaks = is_peak & (scores >= threshold)
+    if not peaks.any():
+        flaggable = is_peak & (lags >= lo)
+        score = float(scores[flaggable].max()) if flaggable.any() else 0.0
+        return LoopResult(min(score, 1.0), None, threshold, min_period, True)
+    best = scores[peaks].max()
+    i = int(np.flatnonzero(peaks & (scores >= best - LOOP_PEAK_TOLERANCE))[0])
+    k = int(lags[i])
     period = round(k * HOP, 2)
     passed = k < lo
     notes = ()
     if passed:
         notes = (f"repeats every {period:.1f}s, under --min-period {min_period:g}s, not flagged",)
-    return LoopResult(min(float(ac[k]), 1.0), period, threshold, min_period, passed, notes)
+    return LoopResult(min(float(scores[i]), 1.0), period, threshold, min_period, passed, notes)
 
 
 STEP_BLOCK = 0.5  # seconds; the scale a listener hears as "the sound changed" rather than as texture
@@ -131,7 +149,8 @@ class StepsResult:
     notes: tuple[str, ...] = ()
 
 
-def level_steps(samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: float = 0.75) -> StepsResult:
+def level_steps(samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: float = 0.75,
+                weighted: np.ndarray | None = None) -> StepsResult:
     """Does the level lurch?
 
     Only the sustained step fails: the mean of the 2 s after a boundary against the 2 s before. A hard
@@ -139,10 +158,12 @@ def level_steps(samples: np.ndarray, sr: int, *, max_step: float = 6.0, edge: fl
     recording's character, so range and transient are reported, never failed. A step within the
     dropped edge plus the run-up is not seen as a full step. A join under 3 s from either end at the
     defaults reads smaller than it is, and inside the dropped edge it is not seen at all.
+
+    `weighted` is the K-weighted signal (`k_weight(samples, sr)`) if the caller has it already.
     """
     if edge < 0:
         raise ValueError("edge must be >= 0")
-    env = block_loudness(k_weight(samples, sr), sr, STEP_BLOCK, STEP_BLOCK)
+    env = block_loudness(_weighted(samples, sr, weighted), sr, STEP_BLOCK, STEP_BLOCK)
     skip = int(np.ceil(edge / STEP_BLOCK))
     env = env[skip:len(env) - skip] if skip else env
     peak = true_peak(samples, sr)

@@ -20,7 +20,8 @@
 
 - `--min-period S` (6): the shortest repeat that counts as a loop. A strong repeat under this is
   reported as a note (music repeats at bar length) and does not fail.
-- `--loop-threshold SCORE` (0.75): the autocorrelation score at which a repeat fails.
+- `--loop-threshold SCORE` (0.9): the correlation (of the level's frame-to-frame changes, over the
+  best-matching 10 s window) at which a repeat fails. 1.0 is an exact copy.
 
 ## steps BED [BED ...]
 
@@ -58,9 +59,6 @@ never affect the exit code.
   period was found. Passes. Lower `--min-period` if you want it flagged.
 - "too short to measure level steps (needs at least 6.5s)": fewer than nine half-second blocks remain
   after the edges are dropped. Passes, with zeros.
-- "found by the extended-lag test: the clip was repeated once to fill the file": a FAIL on the loop
-  line. No repeat under half the file reached the threshold, but the two overlapping stretches at a
-  lag between half the file and the file length minus 5 s correlate at 0.95 or more.
 - "no level change anywhere": the steps check on digital silence; every boundary measures 0.0 dB,
   so no place is named. Passes.
 - "level is constant; nothing to correlate": the loop check on digital silence or a constant tone
@@ -69,6 +67,8 @@ never affect the exit code.
 - "min_period must be positive" / "threshold must be between 0 (exclusive) and 1" /
   "edge must be >= 0": library argument guards. The command line rejects these values before they
   get this far; a Python caller sees the ValueError.
+- "weighted must be k_weight(samples, sr): same shape as samples": library only; `loop_score` or
+  `level_steps` was given a precomputed K-weighted signal that does not match the samples.
 - "hop must be at least one sample": library only; the loudness blocking function was given a hop
   under one sample.
 - "must be a finite number, got": a numeric flag was NaN or infinite. Argparse usage error, exit 2.

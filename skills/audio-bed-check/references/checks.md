@@ -44,8 +44,7 @@ the score shown is the strongest local peak at lags of `--min-period` or more, a
 Files shorter than twice the minimum period plus a second (13 s at the defaults) are not judged;
 they report ok with a note.
 
-Validation, on generated signals (the method was rebuilt before release; the earlier calibration
-figures no longer describe it). The figures are from one run of `scripts/loop_sweep.py` in the
+Validation, on generated signals. The figures are from one run of `scripts/loop_sweep.py` in the
 repository, which prints them. 600 unlooped textured beds of 30 to 600 s: no failures, worst score
 0.75; other seeds reach about 0.78, and longer files score higher by chance. Loops under fade-outs
 of 0.25 to 30 s, loops in part of the file, crossfaded joins of 0.2 to 5 s, and repeats at random
@@ -92,9 +91,9 @@ What fails, measured on generated noise:
 - A join of 6.1 dB reads 6.1 wherever it falls between blocks.
 
 Needs at least 6.5 seconds of audio at the default edge (45 blocks after the edges are dropped; the
-message states the figure for the edge in use). A shorter file reports ok with a note. A join less than about 2.5 s inside the dropped
-edge (the 2 s window plus the gap) reads smaller than it is. Inside the dropped edge it is not seen
-at all, not even in `range` or `transient`.
+message states the figure for the edge in use). A shorter file reports ok with a note. A join less
+than about 2.5 s inside the dropped edge (the 2 s window plus the gap) reads smaller than it is.
+Inside the dropped edge it is not seen at all, not even in `range` or `transient`.
 
 ## separation
 
@@ -124,9 +123,9 @@ under speech barely changes the figure. Torcoli et al. measured speech against t
 background, so treat the floors as approximate for ducked mixes.
 
 This is voice-plus-bed against bed, which is what a listener hears and what WCAG describes, not the
-ratio of the two stems. It is also a K-weighted figure: a voice and a bed with different spectra
-measure by their loudness, not their sample gain: a voice with less high-frequency content than the
-bed shows less separation than the gain difference applied to it.
+ratio of the two stems. It is also a K-weighted figure, so a voice and a bed with different spectra
+are compared by loudness, not by sample gain. A voice with less high-frequency content than the bed
+shows less separation than the gain difference applied to it.
 
 Profiles and where their numbers come from:
 

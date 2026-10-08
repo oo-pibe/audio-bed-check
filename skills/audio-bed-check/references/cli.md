@@ -75,8 +75,8 @@ zero prints as 0.0, never -0.0.
   a second, so no repeat that long could be seen. Passes, with the score 0.
 - "repeats every Ns, under --min-period Ms, not flagged": a strong repeat shorter than the minimum
   period was found. Passes. Lower `--min-period` if you want it flagged.
-- "too short to measure level steps (needs at least 6.5s)": fewer than 45 half-second blocks (one every
-  0.1 s) remain after the edges are dropped; 6.5 s at the default edge. Passes, with zeros.
+- "too short to measure level steps (needs at least 6.5s)": fewer than 45 half-second blocks (one
+  every 0.1 s) remain after the edges are dropped; 6.5 s at the default edge. Passes, with zeros.
 - "no level change anywhere": the steps check on digital silence, or on a file whose every block is
   under -70 LKFS (counted as -70 for the step); every boundary measures 0.0 dB, so no place is
   named. Passes.
@@ -125,7 +125,8 @@ zero prints as 0.0, never -0.0.
   name not on PATH). Exit 2.
 - "FILE: ffmpeg failed to start (signal N)" or "FILE: ffmpeg failed to start (...)": ffmpeg itself
   crashed, or could not load its shared libraries; then the loader's line naming the missing
-  library follows, even when the loader aborted ffmpeg with a signal. The file was never read. Fix the ffmpeg install, or point `--ffmpeg` at a working one. Exit 2.
+  library follows, even when the loader aborted ffmpeg with a signal. The file was never read. Fix
+  the ffmpeg install, or point `--ffmpeg` at a working one. Exit 2.
 - "FILE: ffmpeg could not decode it (it has no audio stream)": the file has video only. Exit 2.
 - "FILE: no such file": exit 2.
 - "FILE: ffmpeg could not decode it (...)": the last line of ffmpeg's own error follows. Exit 2.

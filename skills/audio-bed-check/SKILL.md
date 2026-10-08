@@ -21,7 +21,7 @@ channel and summed, as BS.1770 does); only the first audio track is read.
 
 Exit 0 means every check passed, 1 means at least one failed, 2 means a check could not run (no
 ffmpeg, unreadable file, no speech found). `warn` lines (a silent file, a hot peak, an offset that
-disagrees with the voiceover) never change the exit code. Add `--json` to get the numbers as a list
+disagrees with the voiceover) never change the exit code; a `warn` line is something to look at. Add `--json` to get the numbers as a list
 of objects; `--edge`, `--gate` and `--vo-offset` are not recorded in it.
 
 Check the bed before it is encoded: lossy codecs rebuild noise-like content differently on each
@@ -40,8 +40,8 @@ and `steps` 6.5 s at the defaults; a shorter file reports ok with a note, not a 
 - `steps`: fails on a sustained step above `--max-step` (6 dB): the mean level over the 2 s after a
   0.5 s gap at a boundary against the 2 s before, on half-second blocks every 0.1 s. A change held
   about 2 s or longer fails even if it comes back (a +7 dB plateau reads 6.8 held 2 s). Range and
-  the largest half-second transient are printed for information only; a crowd surge is content, a
-  join is a fault.
+  the largest half-second transient are printed for information only, because a crowd surge comes
+  back and a join does not.
 - `separation`: the mix inside the voiceover's speech windows against the bed-only gaps between
   them, in LU. Fails under the profile's minimum: `music` 10, `ambience` 15, `wcag` 20. The read
   needs pauses of 0.9 s or more. When the voiceover seems to start somewhere other than
@@ -70,7 +70,7 @@ The check functions take a float array at 48 kHz, `(n,)` mono or `(n, 2)` stereo
 
 - Do not run `separation` on the bed alone or on the voiceover alone; it needs the voiceover and the
   mix that contains it.
-- Do not treat a high `transient` as a failure. Only `step` fails, by design.
+- Do not treat a high `transient` as a failure. Only `step` fails.
 - Do not lower `--min-period` below the length of a musical bar unless you want bars flagged.
 
 ## Limitations

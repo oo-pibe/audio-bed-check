@@ -86,10 +86,9 @@ Every default can be changed with a flag; the full list is in
 
 ## Where the numbers come from
 
-The loop method was rebuilt before release; the earlier calibration figures no longer describe it.
-It is validated on generated signals, and the figures here are from one run of
+The loop check is validated on generated signals. The figures here are from one run of
 [scripts/loop_sweep.py](https://github.com/oo-pibe/audio-bed-check/blob/main/scripts/loop_sweep.py),
-which anyone can repeat. In that run, 600 unlooped beds of 30 to 600 seconds produced no failures
+which prints them. In that run, 600 unlooped beds of 30 to 600 seconds produced no failures
 and the worst scored 0.75. Other seeds reach about 0.78, and longer files score higher by chance.
 Loops under fades, in part of a file, with crossfaded joins or at changing gain all failed with the
 right period, the lowest at 0.96. On one other seed a 10 s loop at gains up to 6 dB apart was named

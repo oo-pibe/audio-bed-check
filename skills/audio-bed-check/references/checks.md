@@ -1,7 +1,8 @@
 # The three checks
 
 All measurements use ITU-R BS.1770-4 K-weighting, computed in numpy at 48 kHz (files are decoded to
-48 kHz mono by ffmpeg). Levels are LKFS; differences between levels are LU.
+48 kHz by ffmpeg, mono or stereo as the file is; more than two channels are downmixed to two). Stereo
+is measured per channel and the channels' powers summed, as BS.1770 does, never downmixed to mono. Levels are LKFS; differences between levels are LU.
 The steps check reports its figures in dB.
 
 ## loop

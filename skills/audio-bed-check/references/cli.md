@@ -1,7 +1,7 @@
 # Command reference
 
 `audio-bed-check SUBCOMMAND ...`. `--help` on any subcommand lists its flags.
-`audio-bed-check --version` prints the version; it is a top-level flag and goes before any subcommand. Files can be anything ffmpeg reads, video included; each is decoded once to 48 kHz mono.
+`audio-bed-check --version` prints the version; it is a top-level flag and goes before any subcommand. Files can be anything ffmpeg reads, video included; each is decoded once to 48 kHz, mono or stereo as the file is (more than two channels are downmixed to two).
 
 ## Flags on every subcommand
 
@@ -87,12 +87,18 @@ never affect the exit code.
 - "mix true peak above -1 dBTP": a warning on the separation output; the mix has no headroom.
 - "N window(s) fall outside the mix; check --vo-offset": a warning; some speech or gap windows,
   shifted by the offset, landed before the start or past the end of the mix and were left out.
-- "ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG": exit 2. When `--ffmpeg` or
-  the variable named something that is not an executable file (a missing path, or a name not on
-  PATH), the message says "ffmpeg not found at X; ..." instead.
+- "ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG": exit 2.
+- "ffmpeg not found at X; check --ffmpeg or AUDIO_BED_CHECK_FFMPEG": `--ffmpeg` or the variable named
+  something that is not an executable file (a missing path, a file without execute permission, or a
+  name not on PATH). Exit 2.
+- "FILE: ffmpeg failed to start (signal N)" or "FILE: ffmpeg failed to start (...)": ffmpeg itself
+  crashed or could not load its shared libraries (the loader's last line follows); the file was
+  never read. Fix the ffmpeg install, or point `--ffmpeg` at a working one. Exit 2.
 - "FILE: ffmpeg could not decode it (it has no audio stream)": the file has video only. Exit 2.
 - "FILE: no such file": exit 2.
 - "FILE: ffmpeg could not decode it (...)": the last line of ffmpeg's own error follows. Exit 2.
+  The file is always opened as a local file, so a name that looks like a URL or an ffmpeg protocol
+  (`concat:a.wav|b.wav`) is read as that file and usually fails here.
 - "FILE: decoded to no audio": ffmpeg found an audio stream but produced no samples (an empty or
   zero-length track). Exit 2.
 - "ffmpeg returned something that is not a WAV stream": the decoder asks ffmpeg for a WAV on stdout

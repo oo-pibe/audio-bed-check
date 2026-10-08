@@ -205,3 +205,23 @@ def test_a_looped_wav_fails_end_to_end_through_ffmpeg(tmp_path, capsys):
     write_wav(path, tile(textured(12, 1), 4))
     assert cli.main(["bed", str(path)]) == 1
     assert "repeats every 12.0s" in capsys.readouterr().out
+
+
+def test_a_non_executable_ffmpeg_is_not_found(tmp_path, capsys):
+    bed = tmp_path / "bed.wav"
+    write_wav(bed, textured(5, 1))
+    fake = tmp_path / "ffmpeg"
+    fake.write_text("not a program")
+    fake.chmod(0o644)
+    assert cli.main(["loop", str(bed), "--ffmpeg", str(fake)]) == 2
+    out = capsys.readouterr().out
+    assert f"  error ffmpeg not found at {fake}; check --ffmpeg or AUDIO_BED_CHECK_FFMPEG" in out
+
+
+def test_a_program_that_is_not_ffmpeg_cannot_decode(tmp_path, capsys):
+    import shutil
+    ls = shutil.which("ls")
+    bed = tmp_path / "bed.wav"
+    write_wav(bed, textured(5, 1))
+    assert cli.main(["loop", str(bed), "--ffmpeg", ls]) == 2
+    assert f"  error {bed}: ffmpeg could not decode it (" in capsys.readouterr().out

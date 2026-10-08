@@ -46,7 +46,8 @@ vo, _ = decode("read.wav"); mix, _ = decode("final.mp4")
 print(separation(vo, mix, sr, min_lu=15).separation_lu)
 ```
 
-The check functions take any float array at 48 kHz; `decode` always returns 48 kHz mono.
+The check functions take a float array at 48 kHz, `(n,)` mono or `(n, 2)` stereo; `decode` returns
+48 kHz, mono or stereo as the file is (more than two channels downmixed to two).
 
 ## Do not
 

@@ -99,6 +99,11 @@ never affect the exit code.
   and did not get one; a broken or very unusual ffmpeg build. Exit 2.
 - "resample to 48 kHz": raised by the library functions when handed an array at another rate.
   `decode()` always returns 48 kHz, so this only reaches callers who bring their own arrays.
+- "pass mono or stereo samples": raised by the library functions for an array that is not `(n,)` or
+  `(n, 2)`. `decode()` downmixes anything with more than two channels to two, so this too only
+  reaches callers who bring their own arrays.
+- "samples must be finite floats": raised by the library functions for an integer array (scale it
+  to floats in [-1, 1] first) or one holding NaN or infinity.
 
 ## Exit codes
 

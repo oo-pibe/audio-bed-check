@@ -99,3 +99,11 @@ def test_a_step_halfway_is_not_read_as_a_repeat():
     # detrended, a mid-file step leaves two matching ramps; the extended test must not see a loop
     r = loop_score(noise(60, 3, rms_dbfs=-30.0) * step_gain(60 * SR, 30.0, 7.0), SR)
     assert r.passed and r.period_s is None
+
+
+def test_stereo_reads_the_same_loop_as_mono():
+    x = tile(textured(12, 1), 4)
+    mono, both = loop_score(x, SR), loop_score(np.stack([x, x], axis=1), SR)
+    assert not both.passed
+    assert abs(both.score - mono.score) < 0.1
+    assert both.period_s == mono.period_s

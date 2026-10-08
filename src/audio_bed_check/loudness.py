@@ -1,5 +1,9 @@
 """ITU-R BS.1770-4 loudness pieces in numpy: K-weighting, block loudness, momentary series, true peak.
 
+Samples are `(n,)` for mono or `(n, 2)` for stereo, float, finite. Channels are measured separately and
+their mean squares summed (BS.1770 weights L and R 1.0), never downmixed: a downmix cancels an
+anti-phase pair to silence and halves an uncorrelated bed against a centred voice.
+
 Everything is 48 kHz only. The decoder always produces 48 kHz, and the filter coefficients are the
 standard's published 48 kHz set; refusing other rates is cheaper than getting them silently wrong.
 """
@@ -49,6 +53,18 @@ def _check_rate(sr: int) -> None:
         raise ValueError("resample to 48 kHz")
 
 
+def _channels(samples) -> np.ndarray:
+    """samples as a float64 (n, ch) array, ch 1 or 2; ValueError for anything else."""
+    x = np.asarray(samples)
+    if x.ndim == 1:
+        x = x[:, None]
+    if x.ndim != 2 or x.shape[1] not in (1, 2):
+        raise ValueError("pass mono or stereo samples")
+    if not np.issubdtype(x.dtype, np.floating) or not np.isfinite(x).all():
+        raise ValueError("samples must be finite floats")
+    return x.astype(np.float64, copy=False)
+
+
 def fft_convolve(x: np.ndarray, h: np.ndarray, block: int = 1 << 17, full: bool = False) -> np.ndarray:
     """Linear convolution of x with h by overlap-add, so long files stay in memory.
 
@@ -68,29 +84,32 @@ def fft_convolve(x: np.ndarray, h: np.ndarray, block: int = 1 << 17, full: bool 
 
 
 def k_weight(samples: np.ndarray, sr: int) -> np.ndarray:
-    """The K-weighted signal (float64, same length).
+    """The K-weighted signal (float64, same shape), each channel filtered on its own.
 
     The zero-initial-state response of the two BS.1770 biquads, truncated to 4096 taps.
     """
     _check_rate(sr)
-    return fft_convolve(np.asarray(samples, dtype=np.float64), _kernel())
+    x = _channels(samples)
+    out = np.stack([fft_convolve(x[:, c], _kernel()) for c in range(x.shape[1])], axis=1)
+    return out if np.ndim(samples) == 2 else out[:, 0]
 
 
 def block_loudness(weighted: np.ndarray, sr: int, window: float, hop: float) -> np.ndarray:
     """Loudness of an already K-weighted signal per block, in LKFS; floored at -100.
 
+    Mono `(n,)` or stereo `(n, 2)`; the channels' mean squares are summed before the log.
     `window` and `hop` are seconds. Input shorter than one window returns an empty array. The running
     sum of squares is monotone, so no window can go negative; true silence gives 0, then the floor.
     """
     _check_rate(sr)
-    x = np.asarray(weighted, dtype=np.float64)
+    x = _channels(weighted)
     w, h = int(round(window * sr)), int(round(hop * sr))
     if h < 1:
         raise ValueError("hop must be at least one sample")
     if len(x) < w:
         return np.zeros(0)
     starts = np.arange(0, len(x) - w + 1, h)
-    cumulative = np.concatenate([[0.0], np.cumsum(x * x)])
+    cumulative = np.concatenate([[0.0], np.cumsum((x * x).sum(axis=1))])
     mean_square = (cumulative[starts + w] - cumulative[starts]) / w
     with np.errstate(divide="ignore"):
         lkfs = -0.691 + 10 * np.log10(mean_square)
@@ -114,16 +133,23 @@ def _interp_kernel() -> np.ndarray:
 
 
 def true_peak(samples: np.ndarray, sr: int, block: int = 1 << 16) -> float:
-    """Peak of the 4x oversampled waveform, in dBTP.
+    """Peak of the 4x oversampled waveform, in dBTP: the loudest channel.
 
     Zero-stuff, then a linear (never circular) windowed-sinc interpolation by overlap-add, so the
     answer does not depend on `block` and the file counts as silent beyond its ends.
     """
     _check_rate(sr)
-    x = np.asarray(samples, dtype=np.float64)
-    n = len(x)
+    channels = _channels(samples)
+    n = len(channels)
     if n == 0:
         return FLOOR_DBTP
+    peak = max(_channel_peak(channels[:, c], block) for c in range(channels.shape[1]))
+    return float(20 * np.log10(peak)) if peak > 0 else FLOOR_DBTP
+
+
+def _channel_peak(x: np.ndarray, block: int) -> float:
+    """Linear 4x-oversampled peak of one channel."""
+    n = len(x)
     h = _interp_kernel()
     margin = _INTERP_HALF // _UP + 1      # input samples of context a kept sample needs on each side
     peak = 0.0
@@ -136,4 +162,4 @@ def true_peak(samples: np.ndarray, sr: int, block: int = 1 << 16) -> float:
         lo = (start - a) * _UP + _INTERP_HALF
         hi = (end - a) * _UP + _INTERP_HALF
         peak = max(peak, float(np.abs(y[lo:hi]).max()))
-    return float(20 * np.log10(peak)) if peak > 0 else FLOOR_DBTP
+    return peak

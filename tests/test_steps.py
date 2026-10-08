@@ -72,3 +72,13 @@ def test_a_flat_bed_names_no_place():
     assert r.passed and r.step_db == 0.0
     assert r.step_at_s is None
     assert r.notes == ("no level change anywhere",)
+
+
+def test_stereo_reads_the_same_step_as_mono():
+    # identical channels add 3.01 dB to every block; a step is a difference, so it does not move
+    x = noise(60, 1) * step_gain(60 * SR, 30.0, 7.0)
+    mono, both = level_steps(x, SR), level_steps(np.stack([x, x], axis=1), SR)
+    assert abs(both.step_db - mono.step_db) < 0.1
+    assert both.step_at_s == mono.step_at_s
+    assert abs(both.range_db - mono.range_db) < 0.1
+    assert abs(both.peak_dbtp - mono.peak_dbtp) < 0.1

@@ -197,13 +197,17 @@ class SeparationResult:
 
 # speech_runs and gaps_between are module-public for the tests; they are not re-exported by the package.
 def speech_runs(vo: np.ndarray, sr: int, gate_dbfs: float = -44.0) -> list[tuple[float, float]]:
-    """(start, end) seconds of every stretch of the voiceover above the gate for at least SEP_MIN_RUN."""
+    """(start, end) seconds of every stretch of the voiceover above the gate for at least SEP_MIN_RUN.
+
+    Mono or stereo: the gate reads the RMS over every sample of every channel in a hop, a power sum, so
+    a voice on one channel or in anti-phase still counts and identical channels read as mono.
+    """
     x = np.asarray(vo, dtype=np.float64)
     h = int(round(SEP_GATE_HOP * sr))
     blocks = len(x) // h
     if blocks == 0:
         return []
-    rms = np.sqrt((x[:blocks * h].reshape(blocks, h) ** 2).mean(axis=1))
+    rms = np.sqrt((x[:blocks * h] ** 2).reshape(blocks, -1).mean(axis=1))
     with np.errstate(divide="ignore"):
         loud = 20 * np.log10(rms) > gate_dbfs
     runs, start = [], None

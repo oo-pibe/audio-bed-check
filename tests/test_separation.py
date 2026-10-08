@@ -85,3 +85,40 @@ def test_windows_past_the_end_are_dropped_with_a_warning():
     r = separation(vo, mix[: 20 * SR], SR)
     assert r.warnings == ("2 window(s) fall outside the mix; check --vo-offset",)
     assert abs(r.separation_lu - expected(10.0)) < 1.0
+
+
+def test_stereo_with_identical_channels_reads_as_mono():
+    vo, mix = mix_at(10.0)
+    mono = separation(vo, mix, SR)
+    both = separation(np.stack([vo, vo], axis=1), np.stack([mix, mix], axis=1), SR)
+    assert abs(both.separation_lu - mono.separation_lu) < 0.1
+    assert (both.runs, both.gaps) == (mono.runs, mono.gaps)
+
+
+def test_a_centred_voice_over_a_wide_bed_is_summed_per_channel():
+    # L = v + bL, R = v + bR with independent beds. A mono downmix halves the bed's power (the beds do not
+    # add coherently) but keeps the voice's, so it read 2.5 LU too much separation at 6 dB
+    g = 6.0
+    vo = gated(gain(noise(30, 200, rms_dbfs=-40.0), g), RUNS)
+    left_bed, right_bed = noise(30, 201, rms_dbfs=-40.0), noise(30, 202, rms_dbfs=-40.0)
+    mix = np.stack([vo + left_bed, vo + right_bed], axis=1).astype(np.float32)
+    r = separation(vo, mix, SR)
+
+    # the BS.1770 reference by hand: sum the channels' mean squares in each window (weights 1.0). Every
+    # signal is white noise, so K-weighting scales voice and bed alike and drops out of the ratio
+    def power(windows):
+        return np.mean([(mix[int(a * SR):int(b * SR)] ** 2).sum(axis=1).mean() for a, b in windows])
+    reference = 10 * np.log10(power(RUNS) / power(gaps_between(RUNS)))
+    assert abs(reference - expected(g)) < 0.2           # the reference is the textbook figure
+    assert abs(r.separation_lu - reference) < 1.0
+    downmix = separation(vo, mix.mean(axis=1), SR).separation_lu
+    assert downmix - reference > 2.0                     # and the old downmix really was wrong
+
+
+def test_speech_runs_gate_on_the_power_of_all_channels():
+    vo, _ = mix_at(10.0)
+    assert speech_runs(np.stack([vo, vo], axis=1), SR) == speech_runs(vo, SR)
+    assert speech_runs(np.stack([vo, -vo], axis=1), SR) == speech_runs(vo, SR)   # anti-phase is not silence
+    # voice on one channel only: RMS over every sample of both channels is 3 dB under the mono figure
+    one = np.stack([vo, np.zeros_like(vo)], axis=1)
+    assert speech_runs(one, SR) == speech_runs(gain(vo, -3.0103), SR)

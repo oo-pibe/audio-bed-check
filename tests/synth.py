@@ -114,7 +114,8 @@ def textured(seconds: float, seed: int = 0, sr: int = SR) -> np.ndarray:
 
 
 def write_wav(path, x: np.ndarray, sr: int = SR, clip: bool = False) -> None:
-    """16-bit mono WAV, the one format every ffmpeg build and the stdlib both read.
+    """16-bit WAV, the one format every ffmpeg build and the stdlib both read: mono for `(n,)`,
+    interleaved channels for `(n, ch)`.
 
     Raises if |x| exceeds 1.0 unless clip=True: a clipped fixture reads back flatter and quieter,
     which shows up as a wrong loudness number, not as a fixture error.
@@ -123,19 +124,21 @@ def write_wav(path, x: np.ndarray, sr: int = SR, clip: bool = False) -> None:
     if peak > 1.0 and not clip:
         raise ValueError(f"signal peaks at {peak:.2f}; lower it or pass clip=True")
     with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
+        w.setnchannels(1 if np.ndim(x) == 1 else x.shape[1])
         w.setsampwidth(2)
         w.setframerate(sr)
         w.writeframes(np.rint(np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
 
 
 def read_wav(path) -> tuple[np.ndarray, int]:
-    """Read back a 16-bit mono WAV as float32 in [-1, 1]. Used as a stand-in for decode() in CLI tests."""
+    """Read back a 16-bit WAV as float32 in [-1, 1], `(n,)` mono or `(n, ch)`. Used as a stand-in for
+    decode() in CLI tests."""
     with wave.open(str(path), "rb") as w:
-        assert w.getsampwidth() == 2 and w.getnchannels() == 1, "read_wav expects 16-bit mono"
-        sr = w.getframerate()
+        assert w.getsampwidth() == 2, "read_wav expects 16-bit samples"
+        sr, channels = w.getframerate(), w.getnchannels()
         raw = w.readframes(w.getnframes())
-    return (np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32767), sr
+    x = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32767
+    return (x if channels == 1 else x.reshape(-1, channels)), sr
 
 
 def fade(x: np.ndarray, seconds: float = 0.01, sr: int = SR) -> np.ndarray:

@@ -95,3 +95,39 @@ def test_true_peak_matches_ffmpeg(peak_file):
     assert abs(true_peak(samples, sr) - peak) < 0.2
     # the oracle itself sees the inter-sample peak
     assert peak > 20 * np.log10(np.abs(samples).max()) + 2.5
+
+
+@pytest.fixture(scope="module")
+def stereo_files(tmp_path_factory):
+    # left: the modulated noise of tone_file; right: independent noise 6 dB down, so the channels differ
+    x = noise(20, 7, rms_dbfs=-20.0)
+    t = np.arange(len(x)) / SR
+    left = x * 10 ** (np.sin(2 * np.pi * 1.0 * t) * 3.0 / 20)
+    right = noise(20, 8, rms_dbfs=-26.0)
+    folder = tmp_path_factory.mktemp("oracle")
+    paths = {"stereo": folder / "stereo.wav", "mono": folder / "mono.wav", "doubled": folder / "doubled.wav"}
+    write_wav(paths["stereo"], np.stack([left, right], axis=1))
+    write_wav(paths["mono"], left)
+    write_wav(paths["doubled"], np.stack([left, left], axis=1))
+    return paths
+
+
+def test_stereo_momentary_matches_ffmpeg(stereo_files):
+    times, theirs, _, _ = ebur128(stereo_files["stereo"])
+    samples, sr = read_wav(stereo_files["stereo"])
+    assert samples.shape[1] == 2
+    ours = momentary(samples, sr)
+    idx = np.round((times - WINDOW) / HOP).astype(int)
+    keep = (idx >= 0) & (idx < len(ours)) & (theirs > -70)
+    diff = np.abs(ours[idx[keep]] - theirs[keep])
+    assert np.median(diff) < 0.1
+    assert np.percentile(diff, 95) < 0.2
+
+
+def test_a_mono_file_doubled_to_stereo_reads_3_01_louder_in_ffmpeg_and_here(stereo_files):
+    _, _, mono, _ = ebur128(stereo_files["mono"])
+    _, _, doubled, _ = ebur128(stereo_files["doubled"])
+    assert abs((doubled - mono) - 3.01) < 0.11    # ffmpeg prints one decimal
+    left, sr = read_wav(stereo_files["mono"])
+    both, _ = read_wav(stereo_files["doubled"])
+    assert abs(float(np.mean(momentary(both, sr) - momentary(left, sr))) - 3.01) < 0.02

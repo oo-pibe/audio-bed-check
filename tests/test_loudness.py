@@ -74,3 +74,60 @@ def test_fft_convolve_matches_direct_convolution_across_blocks():
     ref = np.convolve(x, h)
     assert np.allclose(fft_convolve(x, h, block=1024, full=True), ref, atol=1e-9)
     assert np.allclose(fft_convolve(x, h, block=1024), ref[: len(x)], atol=1e-9)
+
+
+def stereo(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    return np.stack([left, right], axis=1)
+
+
+def test_mono_duplicated_to_stereo_reads_3_01_lkfs_louder():
+    # BS.1770 sums the channels' mean squares with weight 1.0 for L and R: two equal channels are +3.01
+    x = noise(5, 1)
+    diff = momentary(stereo(x, x), SR) - momentary(x, SR)
+    assert np.all(np.abs(diff - 10 * np.log10(2)) < 0.02)
+
+
+def test_an_anti_phase_pair_is_not_silence():
+    # a mono downmix cancels L = -R to nothing; a per-channel sum reads it like any other stereo pair
+    x = noise(5, 2)
+    diff = momentary(stereo(x, -x), SR) - momentary(x, SR)
+    assert np.all(np.abs(diff - 10 * np.log10(2)) < 0.02)
+
+
+def test_block_loudness_accepts_two_channels():
+    x = k_weight(noise(3, 3), SR)
+    both = block_loudness(stereo(x, x), SR, 0.5, 0.5)
+    assert np.allclose(both - block_loudness(x, SR, 0.5, 0.5), 10 * np.log10(2), atol=1e-9)
+
+
+def test_k_weight_filters_each_channel():
+    x, y = noise(2, 4), noise(2, 5)
+    w = k_weight(stereo(x, y), SR)
+    assert w.shape == (2 * SR, 2)
+    assert np.allclose(w[:, 0], k_weight(x, SR)) and np.allclose(w[:, 1], k_weight(y, SR))
+
+
+def test_true_peak_is_the_loudest_channel():
+    # a -0.26 dBFS tone on one channel only; a mono downmix read it 6 dB low and missed the warning
+    left = fade(sine(2, 1000, 10 ** (-0.26 / 20)))
+    assert abs(true_peak(stereo(left, np.zeros_like(left)), SR) + 0.26) < 0.05
+    assert abs(true_peak(stereo(np.zeros_like(left), left), SR) + 0.26) < 0.05
+
+
+@pytest.mark.parametrize("fn", [
+    lambda x: k_weight(x, SR), lambda x: momentary(x, SR), lambda x: true_peak(x, SR),
+    lambda x: block_loudness(x, SR, 0.5, 0.5),
+])
+def test_bad_sample_arrays_are_refused(fn):
+    with pytest.raises(ValueError, match="^samples must be finite floats$"):
+        fn(np.zeros(SR, dtype=np.int16))
+    with pytest.raises(ValueError, match="^samples must be finite floats$"):
+        bad = np.zeros(SR, dtype=np.float32)
+        bad[100] = np.nan
+        fn(bad)
+    with pytest.raises(ValueError, match="^samples must be finite floats$"):
+        fn(np.full((SR, 2), np.inf))
+    with pytest.raises(ValueError, match="^pass mono or stereo samples$"):
+        fn(np.zeros((SR, 3), dtype=np.float32))
+    with pytest.raises(ValueError, match="^pass mono or stereo samples$"):
+        fn(np.zeros((2, SR, 1), dtype=np.float32))

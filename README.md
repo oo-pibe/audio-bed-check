@@ -1,24 +1,44 @@
 # audio-bed-check
 
-Finds three faults in a rendered audio bed that a tired ear misses: a loop, a level jump at a join,
-and a voiceover sitting too close to the bed.
-
-A bed is the ambience or music that sits under a voiceover or a cut. Three things go wrong with a
-rendered one that a loudness meter does not catch: the file repeats itself, the level jumps
-where two pieces were joined, or the voice over it is not far enough above it to be heard without
-effort. This command measures each one and exits non-zero when one fails.
-
-It needs Python 3.10 or later and ffmpeg, either on PATH or named with `--ffmpeg` or
-`AUDIO_BED_CHECK_FFMPEG`. It reads anything ffmpeg reads, video included. Files keep their
-channels: mono stays mono, stereo is measured per channel and summed the way BS.1770 does, more
-than two channels are downmixed to two by ffmpeg; only the first audio track is read.
+If you render video or audio from a script, this tells you when the background audio is broken
+before anyone hears it.
 
 ```
 pip install audio-bed-check
-
-audio-bed-check bed ambience.wav              # loop and level steps
-audio-bed-check separation final.mp4 --vo read.wav
+audio-bed-check bed ambience.wav                      # does the bed loop? does its level jump?
+audio-bed-check separation final.mp4 --vo read.wav    # is the voice far enough above the bed?
 ```
+
+Exit 0 means fine. Exit 1 means one of the three faults below, with a line saying which and where.
+
+## The problem
+
+In a pipeline (Remotion, ffmpeg, a render farm, a script that stitches clips), the background audio
+is assembled by code rather than by someone listening. That audio is called the bed: the crowd,
+the room tone, the music under a voiceover. Three things go wrong with it, and none of them fails
+a render or trips a loudness meter.
+
+- The clip was shorter than the cut, so it was repeated to fill the time. The same crowd roar comes
+  round every 12 seconds.
+- Two recordings were joined and the level jumps at the seam. The pipeline this tool came out of
+  shipped a bed with a 7 dB jump at two joins; every automated check passed, and a person caught it
+  by ear.
+- The voiceover was mixed too close to the bed. Every word is there if you listen for it, and a
+  viewer will not.
+
+By the time someone notices, the file has been posted.
+
+## What this does
+
+It measures the rendered file and gives a verdict a build can act on.
+
+`bed` runs two checks on the bed alone. The loop check looks for the same material appearing twice
+and reports how often it repeats. The steps check looks for a jump in level that stays, as opposed
+to a crowd surge that comes back, and reports its size and position.
+
+`separation` takes the rendered mix and the voiceover file on its own, finds where the voice is
+speaking, and measures how far above the bed it sits, in loudness units, against published floors:
+10 LU over music, 15 over ambience, 20 for WCAG.
 
 ```
 ambience.wav
@@ -27,11 +47,18 @@ ambience.wav
   info  range       3.0 dB   transient 2.7 dB   peak -5.1 dBTP
 ```
 
-Exit 0 when every check passes, 1 when any fails, 2 when it could not run (a bad flag, an unreadable
-file, no speech found in the voiceover). A `warn` line, such as a file peaking at or under -60 dBTP or a
-voiceover that seems to start somewhere other than `--vo-offset`, never changes the exit code.
-`--json` prints the numbers as a list of objects; the field list is in the command reference.
-`python -m audio_bed_check` is the same command.
+Exit 0 when every check passes, 1 when any fails, 2 when it could not run (a bad flag, an
+unreadable file, no speech found in the voiceover). A `warn` line, such as a file peaking at or
+under -60 dBTP or a voiceover that seems to start somewhere other than `--vo-offset`, never changes
+the exit code. `--json` prints the numbers as a list of objects; the field list is in the command
+reference. `python -m audio_bed_check` is the same command.
+
+## What it needs
+
+Python 3.10 or later and ffmpeg, either on PATH or named with `--ffmpeg` or
+`AUDIO_BED_CHECK_FFMPEG`. It reads anything ffmpeg reads, video included. Files keep their
+channels: mono stays mono, stereo is measured per channel and summed the way BS.1770 does, more
+than two channels are downmixed to two by ffmpeg; only the first audio track is read.
 
 Check the bed before it is encoded. ffmpeg's built-in AAC at 128k rebuilt exact loops of steady
 noise to scores between 0.88 and 0.97, some under the threshold; textured loops stayed at 1.00 after

@@ -44,7 +44,7 @@ Files shorter than twice the minimum period plus a second (13 s at the defaults)
 they report ok with a note.
 
 Validation, on generated signals. The figures are from one run of `scripts/loop_sweep.py` in the
-repository, which prints them. 600 unlooped textured beds of 30 to 600 s: no failures, worst score
+repository, which prints them. 400 unlooped textured beds of 30 to 600 s: no failures, worst score
 0.75; other seeds reach about 0.78, and longer files score higher by chance. Loops under fade-outs
 of 0.25 to 30 s, loops in part of the file, crossfaded joins of 0.2 to 5 s, and repeats at random
 gains of up to 6 dB each: all caught with the right period in that run, lowest score 0.96. On one
@@ -85,7 +85,7 @@ Envelope: K-weighted level in half-second blocks every 0.1 s, the first and last
 What fails, measured on generated noise:
 
 - A change held about 2 s or longer fails even if it comes back. A +7 dB plateau reads 2.2 dB held
-  0.5 s, 3.9 held 1 s, 5.7 held 1.5 s, 6.8 held 2 s and 7.0 held 3 s.
+  0.5 s, 3.9 held 1 s, 5.7 held 1.5 s, 6.7 held 2 s and 7.0 held 3 s.
 - A +7 dB raised-cosine swell passes: 5.6 dB at 4 s wide, 3.6 at 2 s wide.
 - A 10 dB ramp reads 5.0 dB over 5 s and 0.9 over 30 s; both pass. A slow fade is not a join.
 - Two +4 dB steps 1 s apart (8 dB louder and staying louder) read about 7 dB and fail.

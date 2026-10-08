@@ -39,7 +39,7 @@ and `steps` 6.5 s at the defaults; a shorter file reports ok with a note, not a 
   file minus about 10.5 s is not seen either.
 - `steps`: fails on a sustained step above `--max-step` (6 dB): the mean level over the 2 s after a
   0.5 s gap at a boundary against the 2 s before, on half-second blocks every 0.1 s. A change held
-  about 2 s or longer fails even if it comes back (a +7 dB plateau reads 6.8 held 2 s). Range and
+  about 2 s or longer fails even if it comes back (a +7 dB plateau reads 6.7 held 2 s). Range and
   the largest half-second transient are printed for information only, because a crowd surge comes
   back and a join does not.
 - `separation`: the mix inside the voiceover's speech windows against the bed-only gaps between

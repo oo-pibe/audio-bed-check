@@ -132,34 +132,19 @@ def _interp_kernel() -> np.ndarray:
     return h * (_UP / h.sum())
 
 
-def true_peak(samples: np.ndarray, sr: int, block: int = 1 << 16) -> float:
+def true_peak(samples: np.ndarray, sr: int) -> float:
     """Peak of the 4x oversampled waveform, in dBTP: the loudest channel.
 
-    Zero-stuff, then a linear (never circular) windowed-sinc interpolation by overlap-add, so the
-    answer does not depend on `block` and the file counts as silent beyond its ends.
+    A polyphase FIR: zero-stuffing by 4 and filtering with the windowed sinc is the same as filtering
+    the original samples with each of the kernel's four phases `h[p::4]`, so four short `np.convolve`
+    passes per channel give every oversampled value with no zero-stuffed copy and no chunking. Full
+    linear convolutions, so the file counts as silent beyond its ends.
     """
     _check_rate(sr)
     channels = _channels(samples)
-    n = len(channels)
-    if n == 0:
+    if len(channels) == 0:
         return FLOOR_DBTP
-    peak = max(_channel_peak(channels[:, c], block) for c in range(channels.shape[1]))
-    return float(20 * np.log10(peak)) if peak > 0 else FLOOR_DBTP
-
-
-def _channel_peak(x: np.ndarray, block: int) -> float:
-    """Linear 4x-oversampled peak of one channel."""
-    n = len(x)
     h = _interp_kernel()
-    margin = _INTERP_HALF // _UP + 1      # input samples of context a kept sample needs on each side
-    peak = 0.0
-    for start in range(0, n, block):
-        end = min(n, start + block)
-        a, b = max(0, start - margin), min(n, end + margin)
-        up = np.zeros((b - a) * _UP)
-        up[::_UP] = x[a:b]
-        y = fft_convolve(up, h, full=True)  # y[j] is the interpolant centred on up[j - _INTERP_HALF]
-        lo = (start - a) * _UP + _INTERP_HALF
-        hi = (end - a) * _UP + _INTERP_HALF
-        peak = max(peak, float(np.abs(y[lo:hi]).max()))
-    return peak
+    peak = max(float(np.abs(np.convolve(channels[:, c], h[p::_UP])).max())
+               for c in range(channels.shape[1]) for p in range(_UP))
+    return float(20 * np.log10(peak)) if peak > 0 else FLOOR_DBTP

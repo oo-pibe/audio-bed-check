@@ -57,11 +57,22 @@ def test_true_peak_of_silence():
     assert true_peak(np.zeros(SR), SR) == -99.0
 
 
-def test_true_peak_does_not_depend_on_block_size():
-    # a 0.9 sine is -0.915 dBTP; a chunked method must give the same number whatever the chunk
+def test_true_peak_matches_a_direct_zero_stuffed_reference():
+    # the polyphase split is an identity: four short convolutions of the original samples give exactly
+    # the samples of one long convolution of the 4x zero-stuffed signal with the whole kernel
+    from audio_bed_check.loudness import _UP, _interp_kernel
     x = sine(5, 1000, 0.9)
-    assert abs(true_peak(x, SR) + 0.915) < 0.05
-    assert abs(true_peak(x, SR) - true_peak(x, SR, block=4096)) < 1e-9
+    assert abs(true_peak(x, SR) + 0.915) < 0.05     # a 0.9 sine is -0.915 dBTP
+    for signal in (x, noise(3, 11), fade(sine(1, SR / 4, 0.5, phase=np.pi / 4))):
+        up = np.zeros(len(signal) * _UP)
+        up[::_UP] = signal
+        reference = 20 * np.log10(np.abs(fft_convolve(up, _interp_kernel(), full=True)).max())
+        assert abs(true_peak(signal, SR) - reference) < 1e-9
+
+
+def test_true_peak_takes_no_block_size():
+    import inspect
+    assert list(inspect.signature(true_peak).parameters) == ["samples", "sr"]
 
 
 def test_k_weight_keeps_length():

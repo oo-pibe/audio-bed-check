@@ -3,6 +3,7 @@
 
 import { spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync, statSync } from "node:fs";
+import { constants as osConstants } from "node:os";
 import path from "node:path";
 import { DecodeError } from "./errors.js";
 
@@ -30,14 +31,15 @@ function which(candidate) {
   for (const dir of (process.env.PATH || "").split(path.delimiter)) {
     if (!dir) continue;
     for (const ext of exts) {
-      const full = path.join(dir, candidate + ext);
+      // absolute: ffmpeg runs from its own folder, so a relative PATH entry would resolve twice
+      const full = path.resolve(dir, candidate + ext);
       if (isExecutable(full)) return full;
     }
   }
   return null;
 }
 
-/** Remotion's compositor package names for this machine, in the order Remotion tries them. */
+/** Remotion's compositor package names that can exist on this machine (one is installed). */
 function remotionPackages() {
   const { platform, arch } = process;
   if (platform === "darwin") return [`compositor-darwin-${arch}`];
@@ -48,9 +50,22 @@ function remotionPackages() {
   return [];
 }
 
+/** On POSIX, true when the file and its folder belong to this user, so nobody else could have put it there. */
+function ownedByMe(file) {
+  if (typeof process.getuid !== "function") return true;
+  try {
+    const uid = process.getuid();
+    return statSync(file).uid === uid && statSync(path.dirname(file)).uid === uid;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * The ffmpeg that Remotion installed into this project, if there is one: looks in node_modules from
- * `start` upward. Nothing is imported or run to find it; it is only a path check.
+ * The ffmpeg that Remotion installed, if there is one: looks in node_modules from `start` upward,
+ * the way Node resolves a package. Nothing is imported or run to find it; it is only a path check.
+ * On POSIX the binary and its folder must belong to the current user, so a node_modules someone
+ * else wrote in a shared parent folder (such as /tmp) is never used.
  */
 export function findRemotionFfmpeg(start = process.cwd()) {
   const exe = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
@@ -58,7 +73,7 @@ export function findRemotionFfmpeg(start = process.cwd()) {
   for (;;) {
     for (const pkg of remotionPackages()) {
       const candidate = path.join(dir, "node_modules", "@remotion", pkg, exe);
-      if (isExecutable(candidate)) return candidate;
+      if (isExecutable(candidate) && ownedByMe(candidate)) return candidate;
     }
     const parent = path.dirname(dir);
     if (parent === dir) return null;
@@ -93,7 +108,7 @@ export function findFfmpeg(ffmpeg = null) {
  * chunk's length is not trusted; the stream ends where the samples end, and a trailing partial
  * frame is dropped.
  */
-export function samplesFromWav(data) {
+export function samplesFromWav(data, expectStereo = false) {
   const notWav = () => new DecodeError("ffmpeg returned something that is not a WAV stream");
   if (data.length < 12 || data.toString("latin1", 0, 4) !== "RIFF" || data.toString("latin1", 8, 12) !== "WAVE") {
     throw notWav();
@@ -107,6 +122,7 @@ export function samplesFromWav(data) {
       count = data.readUInt16LE(at + 10); // fmt body bytes 2-3
     } else if (chunk === "data") {
       if (count < 1) break;
+      if (count > 2 && expectStereo) break; // the -ac 2 downmix must give two channels
       const body = at + 8;
       const frames = Math.floor((data.length - body) / (2 * count));
       const out = Array.from({ length: count }, () => new Float32Array(frames));
@@ -148,7 +164,11 @@ function run(exe, file, downmix) {
       const line = stderr.slice(start, end >= 0 ? end : stderr.length).trim();
       throw new DecodeError(`${file}: ffmpeg failed to start (${line})`);
     }
-    if (proc.signal) throw new DecodeError(`${file}: ffmpeg failed to start (signal ${proc.signal})`);
+    if (proc.signal) {
+      // a number, as Python prints it
+      const number = osConstants.signals[proc.signal] ?? proc.signal;
+      throw new DecodeError(`${file}: ffmpeg failed to start (signal ${number})`);
+    }
     const lines = stderr.trim().split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     let detail = lines.length ? lines[lines.length - 1] : "no detail from ffmpeg";
     if (lines.some((l) => l.includes("matches no streams"))) detail = "it has no audio stream";
@@ -164,14 +184,16 @@ function run(exe, file, downmix) {
  *
  * The input is always a local file: the path is passed as `file:PATH` with ffmpeg's protocol
  * whitelist set to file and pipe, so a name such as `concat:a.wav|b.wav` is opened as that file.
- * Asks for 16-bit WAV, which every ffmpeg build can write, the stripped ones bundled with video
- * renderers included.
+ * Asks for 16-bit WAV: stripped ffmpeg builds bundled with video renderers (Remotion's among
+ * them) ship the WAV muxer and the pcm_s16le encoder.
  */
 export function decode(file, ffmpeg = null) {
   const exe = findFfmpeg(ffmpeg);
   if (!existsSync(file)) throw new DecodeError(`${file}: no such file`);
+  // a FIFO or a device would block forever; Python's version hangs on one too
+  if (!statSync(file).isFile()) throw new DecodeError(`${file}: not a regular file`);
   let [samples, count] = samplesFromWav(run(exe, file, false));
-  if (count > 2) [samples, count] = samplesFromWav(run(exe, file, true));
+  if (count > 2) [samples, count] = samplesFromWav(run(exe, file, true), true);
   if (samples[0].length === 0) throw new DecodeError(`${file}: decoded to no audio`);
   return { samples, sr: SR };
 }

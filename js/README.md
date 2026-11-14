@@ -9,8 +9,8 @@ npx audio-bed-check separation out/video.mp4 --vo vo.wav  # is the voice far eno
 ```
 
 Exit 0 means fine. Exit 1 means one of the three faults below, with a line saying which and where.
-No dependencies. It needs Node 20 or later and ffmpeg; inside a Remotion project it uses the ffmpeg
-Remotion already installed, so there is nothing else to set up.
+No dependencies. It needs Node 20 or later and ffmpeg. With no ffmpeg on PATH, it falls back to the
+one Remotion installed in your project, so in a Remotion project there is nothing else to set up.
 
 ## The problem
 
@@ -67,8 +67,11 @@ at 30 fps).
 ## Where it finds ffmpeg
 
 `--ffmpeg PATH`, then `$AUDIO_BED_CHECK_FFMPEG`, then `ffmpeg` on PATH, then the ffmpeg Remotion
-installed in `node_modules` (looked up from the current folder upward). Finding Remotion's copy is a
-path check; nothing from `node_modules` is imported or run except that ffmpeg binary.
+installed in `node_modules`, looked up from the current folder upward the way Node finds a package
+(macOS, Windows x64, and Linux x64 or arm64). Finding Remotion's copy is a path check. Nothing from
+`node_modules` is imported or run except that ffmpeg binary, which loads the libraries next to it as
+it does when Remotion runs it. On macOS and Linux the binary and its folder must belong to you, so a
+`node_modules` someone else wrote in a shared folder above yours is skipped.
 
 ffmpeg is run once per file with an argument list, never through a shell. The input is passed as
 `file:PATH` with ffmpeg's protocol whitelist set to `file,pipe`, so a name like
@@ -93,7 +96,7 @@ separation(vo, mix, sr, { minLu: 15 }).separation_lu;
 ## The same tool in Python
 
 This is a port of the [Python package](https://pypi.org/project/audio-bed-check/) of the same name,
-with the same checks, flags, output and exit codes. Its README covers how each check works, where
+with the same checks, flags and results. Its README covers how each check works, where
 the thresholds come from, and the validation of the loop check. `js/scripts/parity.py` in the
 repository runs both on the same generated files and requires every number to agree.
 

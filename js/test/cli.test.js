@@ -116,3 +116,34 @@ test("the bin script runs and passes the exit code through", { skip: !hasFfmpeg 
   const v = spawnSync(process.execPath, [BIN, "--version"]);
   assert.equal(v.stdout.toString().trim(), `audio-bed-check ${VERSION}`);
 });
+
+test("argparse's order of play (found in review)", () => {
+  // a number too large to store is inf, and refused like inf
+  for (const argv of [["loop", "a.wav", "--min-period", "1e400"], ["steps", "a.wav", "--edge", "1e999"],
+    ["separation", "m.wav", "--vo", "v.wav", "--gate=-1e400"]]) {
+    assert.match(run(argv).err, /must be a finite number/);
+  }
+  // the files are one run; a file after an option is left over, reported by the main parser
+  const late = run(["loop", "a.wav", "--json", "b.wav"]);
+  assert.equal(late.code, 2);
+  assert.match(late.err, /^usage: audio-bed-check \[-h\] \[--version\][^]*audio-bed-check: error: unrecognized arguments: b\.wav$/);
+  // help and version abbreviate, and help wins over an unknown option before it
+  assert.equal(run(["--vers"]).out, `audio-bed-check ${VERSION}`);
+  assert.equal(run(["loop", "--he"]).code, 0);
+  assert.equal(run(["loop", "--bogus", "-h"]).code, 0);
+  // a missing file argument is reported before anything left over
+  assert.match(run(["loop", "-x"]).err, /audio-bed-check loop: error: the following arguments are required: BED/);
+  assert.match(run(["loop", "--version"]).err, /required: BED/);
+  // "-" is a value
+  assert.equal(parse(["separation", "m.wav", "--vo", "-"]).vo, "-");
+  // argparse's names for the type functions
+  assert.match(run(["bed", "a.wav", "--max-step", "abc"]).err, /invalid _positive value: 'abc'/);
+});
+
+test("a signal is reported by number, as Python does", { skip: process.platform === "win32" }, () => {
+  const fake = path.join(dir, "fake-ffmpeg");
+  writeFileSync(fake, "#!/bin/sh\nkill -ABRT $$\n", { mode: 0o755 });
+  const r = run(["steps", wav(dir, "sig.wav", 1), "--ffmpeg", fake]);
+  assert.equal(r.code, 2);
+  assert.match(r.out, /ffmpeg failed to start \(signal 6\)/);
+});

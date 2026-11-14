@@ -27,11 +27,23 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from audio_bed_check import decode, k_weight, level_steps, loop_score, separation  # noqa: E402
 from loop_sweep import UNLOOPED, looped  # noqa: E402
+
+from audio_bed_check import decode, k_weight, level_steps, loop_score, separation  # noqa: E402
 from tests.synth import (  # noqa: E402
-    SR, fade, fade_edges, gain, gated, irregular_read, noise, sine, step_gain, swell_gain, textured,
-    tile, write_wav,
+    SR,
+    fade,
+    fade_edges,
+    gain,
+    gated,
+    irregular_read,
+    noise,
+    sine,
+    step_gain,
+    swell_gain,
+    textured,
+    tile,
+    write_wav,
 )
 
 TOL = 1e-6
@@ -117,7 +129,8 @@ def tied_positions(file, edge=0.75):
     env = env[skip:len(env) - skip] if skip else env
     c = np.concatenate([[0.0], np.cumsum(np.maximum(env, STEP_FLOOR_LKFS))])
     i = np.arange(STEP_SIDE, len(env) - STEP_GAP - STEP_SIDE + 1)
-    steps = np.abs((c[i + STEP_GAP + STEP_SIDE] - c[i + STEP_GAP]) / STEP_SIDE - (c[i] - c[i - STEP_SIDE]) / STEP_SIDE)
+    after = (c[i + STEP_GAP + STEP_SIDE] - c[i + STEP_GAP]) / STEP_SIDE
+    steps = np.abs(after - (c[i] - c[i - STEP_SIDE]) / STEP_SIDE)
     tied = i[steps >= steps.max() - 1e-6]
     return {round(float(((skip + k - 1) * STEP_HOP + STEP_BLOCK + (skip + k + STEP_GAP) * STEP_HOP) / 2), 2)
             for k in tied}
@@ -141,46 +154,39 @@ def py_result(case):
 
 
 def cli(argv, js: bool):
-    exe = ["node", str(JS / "bin" / "audio-bed-check.js")] if js else [sys.executable, "-m", "audio_bed_check"]
+    node = ["node", str(JS / "bin" / "audio-bed-check.js")]
+    exe = node if js else [sys.executable, "-m", "audio_bed_check"]
     p = subprocess.run(exe + argv, capture_output=True, text=True, cwd=ROOT,
                        env={**os.environ, "PYTHONPATH": str(ROOT / "src")})
-    return p.returncode, p.stdout
+    # the error line only: argparse wraps its usage line to the terminal, the port does not
+    lines = p.stderr.strip().splitlines()
+    return p.returncode, p.stdout, lines[-1] if lines else ""
 
 
-def cli_ties_only(py_out: str, js_out: str, as_json: bool, edge: float) -> bool:
-    """True when the two outputs differ only in step positions that tie (or, for JSON, in how a
-    number is printed: Python writes 7.0 where JavaScript writes 7)."""
-    if as_json:
-        a, b = json.loads(py_out), json.loads(js_out)
-        if len(a) != len(b):
-            return False
-        for x, y in zip(a, b, strict=True):
-            sx, sy = dict(x.get("steps", {})), dict(y.get("steps", {}))
-            if sx.get("step_at_s") != sy.get("step_at_s"):
-                if sy.get("step_at_s") not in tied_positions(x["file"], edge):
-                    return False
-                sx.pop("step_at_s"), sy.pop("step_at_s")
-            if {**x, "steps": sx} != {**y, "steps": sy}:
-                return False
-        return True
-    blocks_a, blocks_b = py_out.split("\n\n"), js_out.split("\n\n")
-    if len(blocks_a) != len(blocks_b):
+STEP_LINE = re.compile(r'(.*dB at |\s*"step_at_s": )([\d.]+)(s \(max .*|,?)')
+
+
+def cli_ties_only(py_out: str, js_out: str, edge: float) -> bool:
+    """True when the outputs differ only in step positions, and on every such line JavaScript names
+    the earliest of the positions where Python's own steps tie its largest."""
+    la, lb = py_out.splitlines(), js_out.splitlines()
+    if len(la) != len(lb):
         return False
-    for pa, pb in zip(blocks_a, blocks_b, strict=True):
-        if pa == pb:
+    current, block_start = None, True
+    for x, y in zip(la, lb, strict=True):
+        m = re.match(r'\s*"file": (".*"),', x)
+        if m:
+            current = json.loads(m[1])
+        elif block_start and x and not x.startswith(" "):
+            current = x
+        block_start = x == ""
+        if x == y:
             continue
-        la, lb = pa.splitlines(), pb.splitlines()
-        if len(la) != len(lb):
+        mx, my = STEP_LINE.fullmatch(x), STEP_LINE.fullmatch(y)
+        if not (mx and my and mx[1] == my[1] and mx[3] == my[3] and current):
             return False
-        for x, y in zip(la, lb, strict=True):
-            if x == y:
-                continue
-            mx = re.fullmatch(r"(.*dB at )([\d.]+)(s \(max .*)", x)
-            my = re.fullmatch(r"(.*dB at )([\d.]+)(s \(max .*)", y)
-            if not (mx and my and mx[1] == my[1] and mx[3] == my[3]):
-                return False
-            if float(my[2]) not in tied_positions(la[0], edge):
-                return False
+        if float(my[2]) != min(tied_positions(current, edge)):
+            return False
     return True
 
 
@@ -210,15 +216,13 @@ def main():
     for name, case, j in zip(names, cases, js, strict=True):
         p = py_result(case)
         if "error" in p or "error" in j:
-            pe, je = p.get("error", ""), j.get("error", "")
-            # the error classes share messages; the class names differ by language only in prefix
-            ok = pe.split(": ", 1)[-1] == je.split(": ", 1)[-1] and bool(pe) == bool(je)
+            ok = p.get("error") == j.get("error")   # class name and message
         else:
             ok = set(p) == set(j) and all(same(p[k], j[k]) for k in p if k != "step_at_s")
             if ok and "step_at_s" in p and not same(p["step_at_s"], j["step_at_s"]):
                 # tied steps on a looped bed: JS reports the earliest; accept it only where
                 # Python's own step ties its largest
-                ok = j["step_at_s"] in tied_positions(case["file"])
+                ok = j["step_at_s"] == min(tied_positions(case["file"]))
         if not ok:
             bad += 1
             diffs = {k: (p.get(k), j.get(k)) for k in set(p) | set(j) if not same(p.get(k), j.get(k))}
@@ -229,17 +233,23 @@ def main():
         ["bed"], ["loop", "--min-period", "1.5"], ["loop", "--loop-threshold", "0.5"],
         ["steps", "--max-step", "2.5", "--edge", "0"], ["steps", "--edge", "3"], ["bed", "--json"],
     ]
-    files = sorted(str(p) for p in tmp.glob("bed*.wav"))[:40]
-    cli_bad = 0
-    for f in flags:
-        argv = [f[0], *files, *f[1:]]
+    files = sorted(str(p) for p in tmp.glob("bed*.wav"))
+    runs, cli_bad = 0, 0
+
+    def compare(argv, label, edge=0.75, output=True):
+        nonlocal runs, cli_bad
+        runs += 1
         a, b = cli(argv, js=False), cli(argv, js=True)
-        if a != b:
-            edge = float(f[f.index("--edge") + 1]) if "--edge" in f else 0.75
-            if a[0] == b[0] and cli_ties_only(a[1], b[1], "--json" in f, edge):
-                continue
-            cli_bad += 1
-            print(f"CLI MISMATCH: {' '.join(f)}")
+        if not output:   # help text: argparse formats it its own way; the exit code must agree
+            a, b = (a[0],), (b[0],)
+        if a == b or (a[0] == b[0] and a[2] == b[2] and cli_ties_only(a[1], b[1], edge)):
+            return
+        cli_bad += 1
+        print(f"CLI MISMATCH {label}:\n  py {a}\n  js {b}")
+
+    for f in flags:
+        edge = float(f[f.index("--edge") + 1]) if "--edge" in f else 0.75
+        compare([f[0], *files, *f[1:]], " ".join(f), edge)
     for i, (_, _, _, opts) in enumerate(mixes()):
         argv = ["separation", str(tmp / f"mix{i:02d}.wav"), "--vo", str(tmp / f"vo{i:02d}.wav")]
         if "voOffset" in opts:
@@ -248,11 +258,35 @@ def main():
             argv += ["--gate", str(opts["gateDbfs"])]
         if "minLu" in opts:
             argv += ["--profile", "wcag"]
-        a, b = cli(argv, False), cli(argv, True)
-        if a != b:
-            cli_bad += 1
-            print(f"CLI MISMATCH separation {i}:\n  py {a}\n  js {b}")
-    print(f"cli: {len(flags) + i + 1 - cli_bad} of {len(flags) + i + 1} runs match")
+        compare(argv, f"separation {i}")
+        compare([*argv, "--json"], f"separation {i} --json")
+        compare([*argv, "--min-separation", "3.5"], f"separation {i} --min-separation")
+
+    # the command line itself: odd orders, abbreviations, bad values
+    b, m, v = files[0], str(tmp / "mix00.wav"), str(tmp / "vo00.wav")
+    odd = [
+        ["loop", b, "--json", b], ["loop", "-x"], ["loop", "--version"], ["bed", b, "--m", "3"],
+        ["bed", b, "--max-s=2", "-x"], ["bed", b, "--max-step", "1e400"],
+        ["loop", b, "--min-period", "1e400"],
+        ["steps", b, "--edge", "1e999"], ["separation", m, "--vo", v, "--gate=-1e400"],
+        ["separation", m, "--vo", v, "--vo-offset", "1e400"], ["bed", b, "--edge", "1_0"],
+        ["bed", b, "--edge", " 2 "], ["bed", b, "--max-step", "abc"], ["bed", b, "--edge", "xyz"],
+        ["loop", b, "--loop-threshold", "q"], ["separation", m, "--vo", v, "--gate", "q"],
+        ["separation", m, "--vo", v, "--profile", "loud"], ["separation", m, "n.wav", "--vo", v],
+        ["--bogus", "loop", b], ["loop", b, "--max-step", "3"], ["bed", "--", b], ["bed", b, "--json=yes"],
+        ["bed", b, "--max-step"], [], ["nope"], ["separation", m], ["separation", "--vo", v],
+        ["separation", "--vo", v, m, "--min-separation", "12", "--json"],
+        ["separation", m, "--vo", v, "--min-sep", "25"], ["separation", m, "--vo", v, "--vo-offset", "-0.5"],
+        ["loop", b, "--min-period", "9186.625"], ["steps", b, "--max-step", "1e22"],
+        ["bed", b, "--loop-threshold", "1"], ["bed", b, "--max-step", "-1"], ["bed", b, "--max-step", "-.5"],
+        ["steps", str(tmp / "missing.wav"), b], ["bed", "-my file.wav"], ["--vers"],
+        ["steps", b, "--ffmpeg", str(tmp / "no-such-ffmpeg")],
+    ]
+    for argv in odd:
+        compare(argv, " ".join(argv) or "(no arguments)")
+    for argv in (["--he"], ["-h"], ["loop", "--he"], ["loop", "--bogus", "-h"], ["bed", b, "--help"]):
+        compare(argv, " ".join(argv), output=False)
+    print(f"cli: {runs - cli_bad} of {runs} runs match")
     sys.exit(1 if bad or cli_bad else 0)
 
 

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { findRemotionFfmpeg, samplesFromWav } from "../src/decode.js";
+import { findFfmpeg, findRemotionFfmpeg, samplesFromWav } from "../src/decode.js";
 import { DecodeError } from "../src/errors.js";
 
 function riff(chunks) {
@@ -70,4 +70,23 @@ test("finds Remotion's ffmpeg from a project subfolder, by path only", () => {
   mkdirSync(sub, { recursive: true });
   assert.equal(findRemotionFfmpeg(sub), exe);
   assert.equal(findRemotionFfmpeg(tmpdir()), null);
+});
+
+test("a relative PATH entry runs the ffmpeg it found, not one resolved again from its folder", () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "abc-relpath-")));
+  mkdirSync(path.join(root, "bin", "bin"), { recursive: true });
+  const exe = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
+  for (const p of [path.join(root, "bin", exe), path.join(root, "bin", "bin", exe)]) {
+    writeFileSync(p, "#!/bin/sh\n");
+    chmodSync(p, 0o755);
+  }
+  const cwd = process.cwd(), saved = process.env.PATH;
+  try {
+    process.chdir(root);
+    process.env.PATH = "bin";
+    assert.equal(findFfmpeg(), path.join(root, "bin", exe));
+  } finally {
+    process.chdir(cwd);
+    process.env.PATH = saved;
+  }
 });

@@ -1,0 +1,16 @@
+{
+  "name": "audio-bed-check",
+  "version": "0.1.0",
+  "description": "Check an audio bed for loops and level steps, and a voiceover mix for speech-over-bed separation.",
+  "license": "MIT",
+  "type": "module",
+  "bin": { "audio-bed-check": "bin/audio-bed-check.js" },
+  "exports": { ".": "./src/index.js" },
+  "files": ["bin", "src", "README.md", "LICENSE"],
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test" },
+  "keywords": ["audio", "loudness", "bs1770", "ebu-r128", "loop-detection", "ffmpeg", "remotion", "voiceover", "qa"],
+  "repository": { "type": "git", "url": "git+https://github.com/oo-pibe/audio-bed-check.git", "directory": "js" },
+  "homepage": "https://github.com/oo-pibe/audio-bed-check#readme",
+  "bugs": "https://github.com/oo-pibe/audio-bed-check/issues"
+}

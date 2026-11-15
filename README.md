@@ -11,6 +11,9 @@ audio-bed-check separation final.mp4 --vo read.wav    # is the voice far enough 
 
 Exit 0 means fine. Exit 1 means one of the three faults below, with a line saying which and where.
 
+For Node and Remotion projects the same tool is on npm with no dependencies:
+`npx audio-bed-check bed music.wav`. See [js/](js/README.md).
+
 ## The problem
 
 In a pipeline (Remotion, ffmpeg, a render farm, a script that stitches clips), the background audio
@@ -67,8 +70,8 @@ Check the bed before it is encoded. ffmpeg's built-in AAC at 128k rebuilt exact 
 noise to scores between 0.88 and 0.97, some under the threshold; textured loops stayed at 1.00 after
 AAC and MP3.
 
-A 10-minute mono file takes about 2 s for `bed` and about 1.3 GB of memory; an hour takes about
-40 s and 4 GB.
+On an Apple A18 Pro laptop with 8 GB of memory, `bed` on a 10-minute mono file takes about 5 s of
+processor time and 1 GB of memory; an hour takes about 50 s and 3 GB.
 
 ## The checks
 

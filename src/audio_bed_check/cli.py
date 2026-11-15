@@ -18,7 +18,10 @@ COMMANDS = ("loop", "steps", "bed", "separation")
 
 
 def _number(text: str) -> float:
-    value = float(text)
+    try:
+        value = float(text)
+    except ValueError:   # argparse would print the function's name: "invalid _positive value"
+        raise argparse.ArgumentTypeError(f"must be a number, got {text}") from None
     if not math.isfinite(value):
         raise argparse.ArgumentTypeError(f"must be a finite number, got {text}")
     return value

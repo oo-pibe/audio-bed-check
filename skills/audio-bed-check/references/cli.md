@@ -98,6 +98,7 @@ zero prints as 0.0, never -0.0.
   `level_steps` was given a precomputed K-weighted signal that does not match the samples.
 - "hop must be at least one sample": library only; the loudness blocking function was given a hop
   under one sample.
+- "must be a number, got": a numeric flag got something that is not a number. Usage error, exit 2.
 - "must be a finite number, got": a numeric flag was NaN or infinite. Argparse usage error, exit 2.
 - "must be a positive number, got": a flag that needs a value above zero got zero or less. Usage
   error, exit 2.

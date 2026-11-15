@@ -136,8 +136,8 @@ test("argparse's order of play (found in review)", () => {
   assert.match(run(["loop", "--version"]).err, /required: BED/);
   // "-" is a value
   assert.equal(parse(["separation", "m.wav", "--vo", "-"]).vo, "-");
-  // argparse's names for the type functions
-  assert.match(run(["bed", "a.wav", "--max-step", "abc"]).err, /invalid _positive value: 'abc'/);
+  // a value that is not a number says so, without argparse's internal type names
+  assert.match(run(["bed", "a.wav", "--max-step", "abc"]).err, /argument --max-step: must be a number, got abc/);
 });
 
 test("a signal is reported by number, as Python does", { skip: process.platform === "win32" }, () => {

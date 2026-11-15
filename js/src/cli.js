@@ -14,7 +14,7 @@ const PROFILES = { music: 10.0, ambience: 15.0, wcag: 20.0 };
 const OVERRIDE = "--min-separation"; // what the profile column says when the flag replaced the profile
 
 class UsageError extends Error {
-  /** message null means "invalid value"; usage is the line printed above the error. */
+  /** usage is the line printed above the error. */
   constructor(message, usage = null, prog = PROG) {
     super(message ?? "");
     this.detail = message;
@@ -31,13 +31,12 @@ const NONFINITE = /^[+-]?(inf|infinity|nan)$/i;
 function number(text) {
   const t = text.trim();
   if (NONFINITE.test(t)) throw new UsageError(`must be a finite number, got ${text}`);
-  if (!DECIMAL.test(t)) throw new UsageError(null);
+  if (!DECIMAL.test(t)) throw new UsageError(`must be a number, got ${text}`);
   const value = Number(t.replaceAll("_", ""));
   // Python's float("1e400") is inf too, and _number refuses it
   if (!Number.isFinite(value)) throw new UsageError(`must be a finite number, got ${text}`);
   return value;
 }
-number.pyName = "_number";
 const positive = (text) => {
   const v = number(text);
   if (v <= 0) throw new UsageError(`must be a positive number, got ${text}`);
@@ -48,14 +47,11 @@ const nonNegative = (text) => {
   if (v < 0) throw new UsageError(`must be zero or more, got ${text}`);
   return v;
 };
-positive.pyName = "_positive";
-nonNegative.pyName = "_non_negative";
 const score = (text) => {
   const v = number(text);
   if (!(v > 0 && v <= 1)) throw new UsageError(`must be between 0 (exclusive) and 1, got ${text}`);
   return v;
 };
-score.pyName = "_score";
 const choice = (options) => (text) => {
   if (!options.includes(text)) {
     throw new UsageError(`invalid choice: '${text}' (choose from ${options.map((o) => `'${o}'`).join(", ")})`);
@@ -259,7 +255,7 @@ export function parse(argv) {
       args[o.key] = o.type === String ? value : o.type(value);
     } catch (e) {
       if (!(e instanceof UsageError)) throw e;
-      fail(`argument ${o.flag}: ${e.detail ?? `invalid ${o.type.pyName} value: '${value}'`}`);
+      fail(`argument ${o.flag}: ${e.detail}`);
     }
   }
   const missing = cmd.options.filter((o) => o.required && args[o.key] == null).map((o) => o.flag);

@@ -1,0 +1,65 @@
+name: Publish (npm)
+# The JavaScript package in js/, released by a tag js-vX.Y.Z on main. The Python package has its
+# own workflow (publish.yml, tags vX.Y.Z); the two tag patterns never overlap.
+on:
+  push:
+    tags: ["js-v*"]
+permissions:
+  contents: read
+concurrency:
+  group: publish-js
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing and provenance
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: npm is new enough for trusted publishing (11.5.1)
+        run: |
+          node -e 'const [a, b, c] = process.argv[1].split(".").map(Number);
+            process.exit(a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1))) ? 0 : 1)' "$(npm -v)" \
+            || { echo "npm $(npm -v) is older than 11.5.1"; exit 1; }
+      - name: The tag must be the package version
+        run: |
+          test "$GITHUB_REF_TYPE" = tag
+          v="$(node -p 'require("./package.json").version')"
+          test "js-v$v" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME is not js-v$v"; exit 1; }
+      - name: The tagged commit must be on main
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "$GITHUB_SHA is not on main"; exit 1; }
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: npm test
+      # the tarball holds the CLI, the library, the README and the licence, and nothing else
+      - name: The tarball contains what it should, and nothing else
+        run: |
+          npm pack --dry-run --json > "$RUNNER_TEMP/pack.json"
+          node -e '
+            const files = require(process.argv[1])[0].files.map((f) => f.path).sort();
+            const allowed = (f) => f === "package.json" || f === "README.md" || f === "LICENSE"
+              || /^bin\/[^/]+\.js$/.test(f) || /^src\/[^/]+\.js$/.test(f);
+            const must = ["package.json", "README.md", "LICENSE", "bin/audio-bed-check.js", "src/index.js", "src/cli.js"];
+            const missing = must.filter((f) => !files.includes(f));
+            const extra = files.filter((f) => !allowed(f));
+            console.log(files.length + " files: " + files.join(" "));
+            if (missing.length) console.error("missing from tarball: " + missing.join(", "));
+            if (extra.length) console.error("must not be in tarball: " + extra.join(", "));
+            process.exit(missing.length || extra.length ? 1 : 0);
+          ' "$RUNNER_TEMP/pack.json"
+      # npm trusted publishing (OIDC, no stored token): npmjs.com trusts
+      # oo-pibe/audio-bed-check publish-js.yml in the npm environment
+      - run: npm publish --provenance --access public

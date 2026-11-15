@@ -3,6 +3,8 @@
 If you render video or audio from code, this tells you when the background audio is broken before
 anyone hears it.
 
+![A terminal: a Remotion render passes, then audio-bed-check fails its music bed (a 6.5 s loop, a 7.03 dB jump) and the mix (voice 0.74 LU above the music), and passes the fixed versions with exit 0](https://raw.githubusercontent.com/oo-pibe/audio-bed-check/main/docs/demo.gif)
+
 ```
 npx audio-bed-check bed music.wav                         # does the bed loop? does its level jump?
 npx audio-bed-check separation out/video.mp4 --vo vo.wav  # is the voice far enough above the bed?

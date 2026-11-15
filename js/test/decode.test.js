@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { findFfmpeg, findRemotionFfmpeg, samplesFromWav } from "../src/decode.js";
+import { decode, findFfmpeg, findRemotionFfmpeg, samplesFromWav } from "../src/decode.js";
 import { DecodeError } from "../src/errors.js";
 
 function riff(chunks) {
@@ -72,21 +72,62 @@ test("finds Remotion's ffmpeg from a project subfolder, by path only", () => {
   assert.equal(findRemotionFfmpeg(tmpdir()), null);
 });
 
-test("a relative PATH entry runs the ffmpeg it found, not one resolved again from its folder", () => {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "abc-relpath-")));
-  mkdirSync(path.join(root, "bin", "bin"), { recursive: true });
-  const exe = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
-  for (const p of [path.join(root, "bin", exe), path.join(root, "bin", "bin", exe)]) {
-    writeFileSync(p, "#!/bin/sh\n");
-    chmodSync(p, 0o755);
-  }
-  const cwd = process.cwd(), saved = process.env.PATH;
+/** A folder holding an executable named ffmpeg that writes a marker file when it runs. */
+function planted(dir) {
+  mkdirSync(dir, { recursive: true });
+  const exe = path.join(dir, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+  writeFileSync(exe, `#!/bin/sh\ntouch "${path.join(dir, "ran")}"\n`);
+  chmodSync(exe, 0o755);
+  return exe;
+}
+
+function withEnv(cwd, env, fn) {
+  const savedCwd = process.cwd(), saved = { ...process.env };
   try {
-    process.chdir(root);
-    process.env.PATH = "bin";
-    assert.equal(findFfmpeg(), path.join(root, "bin", exe));
-  } finally {
     process.chdir(cwd);
-    process.env.PATH = saved;
+    for (const [k, v] of Object.entries(env)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    return fn();
+  } finally {
+    process.chdir(savedCwd);
+    for (const k of Object.keys(env)) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
   }
+}
+
+test("a relative PATH entry is not searched: it would run a binary from the current folder", () => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "abc-relpath-")));
+  const exe = planted(path.join(root, "bin"));
+  withEnv(root, { PATH: `bin${path.delimiter}.`, AUDIO_BED_CHECK_FFMPEG: undefined }, () => {
+    assert.throws(() => findFfmpeg(), DecodeError);
+  });
+  withEnv(root, { PATH: path.join(root, "bin"), AUDIO_BED_CHECK_FFMPEG: undefined }, () => {
+    assert.equal(findFfmpeg(), exe);
+  });
+});
+
+test("Remotion's ffmpeg runs only when asked for: otherwise the error names it", () => {
+  const { platform, arch } = process;
+  const pkg = platform === "darwin" ? `compositor-darwin-${arch}`
+    : platform === "linux" ? `compositor-linux-${arch}-gnu` : "compositor-win32-x64-msvc";
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "abc-optin-")));
+  const exe = planted(path.join(root, "node_modules", "@remotion", pkg));
+  const empty = mkdtempSync(path.join(tmpdir(), "abc-empty-"));
+  withEnv(root, { PATH: empty, AUDIO_BED_CHECK_FFMPEG: undefined }, () => {
+    assert.throws(() => findFfmpeg(), (e) => e instanceof DecodeError && e.message.includes(exe)
+      && e.message.includes("--ffmpeg remotion"));
+    assert.throws(() => decode(path.join(root, "x.wav")), DecodeError);
+    assert.equal(existsSync(path.join(path.dirname(exe), "ran")), false);
+    assert.equal(findFfmpeg("remotion"), exe);
+  });
+  withEnv(root, { PATH: empty, AUDIO_BED_CHECK_FFMPEG: "remotion" }, () => {
+    assert.equal(findFfmpeg(), exe);
+  });
+  withEnv(empty, { PATH: empty, AUDIO_BED_CHECK_FFMPEG: undefined }, () => {
+    assert.throws(() => findFfmpeg("remotion"), /no Remotion ffmpeg/);
+  });
 });

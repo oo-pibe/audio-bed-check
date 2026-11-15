@@ -284,8 +284,14 @@ def main():
     ]
     for argv in odd:
         compare(argv, " ".join(argv) or "(no arguments)")
-    for argv in (["--he"], ["-h"], ["loop", "--he"], ["loop", "--bogus", "-h"], ["bed", b, "--help"]):
+    for argv in (["--he"], ["-h"], ["loop", "--he"]):
         compare(argv, " ".join(argv), output=False)
+    # help with anything else is refused, with the same message on both sides
+    for argv in (["loop", "--bogus", "-h"], ["bed", b, "--help"], ["-h", "bed"], ["bed", "--hel", b]):
+        compare(argv, " ".join(argv))
+    # control characters and "::" in a name are escaped the same way
+    weird = str(tmp / "a\x1b[31m::x\n.wav")
+    compare(["steps", weird, b], "escaped name")
     print(f"cli: {runs - cli_bad} of {runs} runs match")
     sys.exit(1 if bad or cli_bad else 0)
 

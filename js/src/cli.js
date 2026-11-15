@@ -1,5 +1,5 @@
 // Command line: subcommands loop, steps, bed, separation. Exit 0 pass, 1 fail, 2 usage/decode error.
-// The same flags and results as the Python package's cli.py; it also looks for Remotion's ffmpeg.
+// The same flags and results as the Python package's cli.py, plus --ffmpeg remotion.
 
 import { readFileSync } from "node:fs";
 import { SILENT_NOTE, levelSteps, loopScore, separation } from "./checks.js";
@@ -66,7 +66,7 @@ const choice = (options) => (text) => {
 const COMMON = [
   { flag: "--json", key: "json", help: "print a JSON list, one object per file" },
   { flag: "--ffmpeg", key: "ffmpeg", metavar: "PATH", type: String,
-    help: "ffmpeg to use (default: $AUDIO_BED_CHECK_FFMPEG, then PATH, then Remotion's)" },
+    help: "ffmpeg to use, or remotion for the one Remotion installed (default: $AUDIO_BED_CHECK_FFMPEG, then PATH)" },
 ];
 const LOOP = [
   { flag: "--min-period", key: "minPeriod", metavar: "S", type: positive, default: 6.0,
@@ -171,6 +171,8 @@ function classify(token, options, fail) {
 }
 
 const HELP = { flag: "--help", key: "help" };
+/** -h, --help, or an abbreviation of --help: what argparse reads as a help request. */
+const isHelp = (token) => token === "-h" || (token.length >= 3 && "--help".startsWith(token));
 const SHORT_HELP = { flag: "-h", key: "help" };
 const VERSION_FLAG = { flag: "--version", key: "version" };
 
@@ -183,6 +185,13 @@ const VERSION_FLAG = { flag: "--version", key: "version" };
  */
 export function parse(argv) {
   const mainFail = (message) => { throw new UsageError(message, MAIN_USAGE); };
+  // help only on its own (`-h`, `bed -h`): with a file list from a glob, a file named --help would
+  // otherwise turn the run into exit 0
+  const end = argv.indexOf("--");
+  const helpAt = (end < 0 ? argv : argv.slice(0, end)).findIndex(isHelp);
+  if (helpAt >= 0 && !(argv.length === 1 || (argv.length === 2 && helpAt === 1 && argv[0] in COMMANDS))) {
+    mainFail("-h/--help cannot be combined with other arguments");
+  }
   const extras = [];
   let at = 0;
   for (; at < argv.length; at++) {
@@ -352,11 +361,25 @@ function pyJson(value, key = null, pad = "") {
   return "{\n" + entries.map(([k, v]) => `${inner}${pyJson(k)}: ${pyJson(v, k, inner)}`).join(",\n") + "\n" + pad + "}";
 }
 
+/**
+ * Text output of a string that came from outside (a file name, an error that quotes one): control
+ * characters as \xNN, so a name cannot move the cursor, recolor the terminal or start a new line,
+ * and "::" broken up, so a CI log never reads it as a workflow command. JSON escapes on its own.
+ */
+export function safe(text) {
+  return String(text)
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (c) => {
+      const code = c.charCodeAt(0);
+      return code <= 0xff ? `\\x${code.toString(16).padStart(2, "0")}` : `\\u${code.toString(16)}`;
+    })
+    .replaceAll("::", ":\\x3a");
+}
+
 const verdict = (passed) => (passed ? "ok  " : "FAIL");
 
 export function render(entry) {
-  const lines = [entry.file];
-  if ("error" in entry) lines.push(`  error ${entry.error}`);
+  const lines = [safe(entry.file)];
+  if ("error" in entry) lines.push(`  error ${safe(entry.error)}`);
   if (entry.loop) {
     const r = entry.loop;
     let detail;
@@ -394,7 +417,7 @@ export function main(argv = process.argv.slice(2), out = (s) => process.stdout.w
     args = parse(argv);
   } catch (e) {
     if (!(e instanceof UsageError)) throw e;
-    err(`${e.usage}\n${e.prog}: error: ${e.detail}`);
+    err(`${e.usage}\n${e.prog}: error: ${safe(e.detail)}`);
     return 2;
   }
   if (args.help) { out(args.help); return 0; }
@@ -405,7 +428,7 @@ export function main(argv = process.argv.slice(2), out = (s) => process.stdout.w
   } catch (e) {
     // NoSpeechError and the library's argument guards are ValueErrors
     if (!(e instanceof DecodeError || e instanceof ValueError)) throw e;
-    err(`${PROG}: ${e.message}`);
+    err(`${PROG}: ${safe(e.message)}`);
     return 2;
   }
   out(args.json ? pyJson(results) : results.map(render).join("\n\n"));

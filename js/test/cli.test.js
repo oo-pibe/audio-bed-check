@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { main, parse, VERSION } from "../src/cli.js";
+import { main, parse, render, safe, VERSION } from "../src/cli.js";
 
 const BIN = fileURLToPath(new URL("../bin/audio-bed-check.js", import.meta.url));
 
@@ -127,10 +127,10 @@ test("argparse's order of play (found in review)", () => {
   const late = run(["loop", "a.wav", "--json", "b.wav"]);
   assert.equal(late.code, 2);
   assert.match(late.err, /^usage: audio-bed-check \[-h\] \[--version\][^]*audio-bed-check: error: unrecognized arguments: b\.wav$/);
-  // help and version abbreviate, and help wins over an unknown option before it
+  // help and version abbreviate; help with other arguments is refused (see the glob test below)
   assert.equal(run(["--vers"]).out, `audio-bed-check ${VERSION}`);
   assert.equal(run(["loop", "--he"]).code, 0);
-  assert.equal(run(["loop", "--bogus", "-h"]).code, 0);
+  assert.equal(run(["loop", "--bogus", "-h"]).code, 2);
   // a missing file argument is reported before anything left over
   assert.match(run(["loop", "-x"]).err, /audio-bed-check loop: error: the following arguments are required: BED/);
   assert.match(run(["loop", "--version"]).err, /required: BED/);
@@ -146,4 +146,29 @@ test("a signal is reported by number, as Python does", { skip: process.platform 
   const r = run(["steps", wav(dir, "sig.wav", 1), "--ffmpeg", fake]);
   assert.equal(r.code, 2);
   assert.match(r.out, /ffmpeg failed to start \(signal 6\)/);
+});
+
+test("help with anything else is a usage error, so a file named --help cannot make a run pass", () => {
+  for (const argv of [["-h"], ["--help"], ["--he"], ["bed", "-h"], ["separation", "--help"]]) {
+    assert.equal(run(argv).code, 0, argv.join(" "));
+  }
+  for (const argv of [["bed", "a.wav", "--help"], ["bed", "--help", "a.wav"], ["loop", "--bogus", "-h"],
+    ["-h", "bed"], ["--json", "--help"], ["separation", "m.wav", "--vo", "v.wav", "--hel"]]) {
+    const r = run(argv);
+    assert.equal(r.code, 2, argv.join(" "));
+    assert.match(r.err, /cannot be combined/, argv.join(" "));
+  }
+  assert.deepEqual(parse(["bed", "--", "--help"]).files, ["--help"]);
+});
+
+test("names in text output cannot break lines, send escape codes or start a workflow command", () => {
+  const name = "a\n::error::x\u001b[2J\r.wav";
+  const text = render({ file: name, passed: false, error: `${name}: no such file` });
+  assert.doesNotMatch(text, /[\u0000-\u0009\u000b-\u001f]/);
+  assert.equal(text.split("\n").length, 2);
+  assert.doesNotMatch(text, /::/);
+  assert.equal(safe("plain/name.wav"), "plain/name.wav");
+  assert.equal(safe("a\u001bb"), "a\\x1bb");
+  const r = run(["bed", "a.wav", "--max-step", "x\u001by"]);
+  assert.doesNotMatch(r.err, /\u001b/);
 });

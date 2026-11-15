@@ -7,7 +7,7 @@
   "bin": { "audio-bed-check": "bin/audio-bed-check.js" },
   "exports": { ".": "./src/index.js" },
   "files": ["bin", "src", "README.md", "LICENSE"],
-  "engines": { "node": ">=20" },
+  "engines": { "node": "^20.15.1 || >=22.4.1" },
   "scripts": { "test": "node --test" },
   "keywords": ["audio", "loudness", "bs1770", "ebu-r128", "loop-detection", "ffmpeg", "remotion", "voiceover", "qa"],
   "repository": { "type": "git", "url": "git+https://github.com/oo-pibe/audio-bed-check.git", "directory": "js" },

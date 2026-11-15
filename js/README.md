@@ -9,8 +9,8 @@ npx audio-bed-check separation out/video.mp4 --vo vo.wav  # is the voice far eno
 ```
 
 Exit 0 means fine. Exit 1 means one of the three faults below, with a line saying which and where.
-No dependencies. It needs Node 20 or later and ffmpeg. With no ffmpeg on PATH, it falls back to the
-one Remotion installed in your project, so in a Remotion project there is nothing else to set up.
+No dependencies. It needs Node 20.15.1 or later and ffmpeg. In a Remotion project without ffmpeg on
+PATH, `--ffmpeg remotion` uses the copy Remotion installed.
 
 ## The problem
 
@@ -48,6 +48,9 @@ Exit 0 when every check passes, 1 when any fails, 2 when it could not run (a bad
 unreadable file, no speech found in the voiceover). A `warn` line never changes the exit code.
 `--json` prints the numbers as a list of objects.
 
+When the file list comes from a glob, put `--` before it: `npx audio-bed-check bed -- out/*`.
+Without it, a file whose name starts with `-` (say `--max-step=100`) is read as an option.
+
 ## With Remotion
 
 Render the music on its own and check it, then check the voice against the final mix. Here the
@@ -61,17 +64,24 @@ npx remotion render src/index.ts Promo out/promo.mp4
 npx audio-bed-check separation out/promo.mp4 --vo public/voice.wav --vo-offset 9
 ```
 
+In a Remotion project with no ffmpeg of its own, add `--ffmpeg remotion` to each check.
+
 `--vo-offset` is where the voiceover starts in the mix, in seconds (here, a `<Sequence from={9 * 30}>`
 at 30 fps).
 
 ## Where it finds ffmpeg
 
-`--ffmpeg PATH`, then `$AUDIO_BED_CHECK_FFMPEG`, then `ffmpeg` on PATH, then the ffmpeg Remotion
-installed in `node_modules`, looked up from the current folder upward the way Node finds a package
-(macOS, Windows x64, and Linux x64 or arm64). Finding Remotion's copy is a path check. Nothing from
-`node_modules` is imported or run except that ffmpeg binary, which loads the libraries next to it as
-it does when Remotion runs it. On macOS and Linux the binary and its folder must belong to you, so a
-`node_modules` someone else wrote in a shared folder above yours is skipped.
+`--ffmpeg PATH`, then `$AUDIO_BED_CHECK_FFMPEG`, then `ffmpeg` on PATH. Only absolute PATH
+entries are searched, so a `.` or `bin` in PATH never picks up a binary from the folder you are in.
+On Windows only `.exe` files are run, never a `.cmd` or `.bat` wrapper.
+
+`--ffmpeg remotion` (or `AUDIO_BED_CHECK_FFMPEG=remotion`) runs the ffmpeg Remotion installed in
+`node_modules`, looked up from the current folder upward the way Node finds a package (macOS,
+Windows x64, and Linux x64 or arm64). It is never chosen on its own, because a repository you clone
+can carry a `node_modules` with any binary in it. When there is no ffmpeg on PATH and a Remotion
+copy is there, the error names its path so you can decide. On macOS and Linux the binary and its
+folder must also belong to you, which rules out a `node_modules` another account wrote in a shared
+folder such as `/tmp`.
 
 ffmpeg is run once per file with an argument list, never through a shell. The input is passed as
 `file:PATH` with ffmpeg's protocol whitelist set to `file,pipe`, so a name like

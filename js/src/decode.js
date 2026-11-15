@@ -19,20 +19,28 @@ function isExecutable(file) {
   }
 }
 
-/** shutil.which: a name with a directory part is checked as given, a bare name is looked up on PATH. */
+// Windows runs a .cmd or .bat file through cmd.exe, which re-parses the arguments (file names
+// included) as a command line; only real executables are run
+const BATCH = /\.(bat|cmd)$/i;
+
+/**
+ * shutil.which, minus two things: a name with a directory part is checked as given, a bare name is
+ * looked up in the absolute entries of PATH only. A relative entry (".", "bin") would search the
+ * current folder, which may be a checkout someone else wrote.
+ */
 function which(candidate) {
-  const exts = process.platform === "win32"
-    ? ["", ...(process.env.PATHEXT || ".EXE;.CMD;.BAT;.COM").split(";").filter(Boolean)]
+  const win = process.platform === "win32";
+  const exts = win
+    ? ["", ...(process.env.PATHEXT || ".EXE;.COM").split(";").filter((e) => e && !BATCH.test(e))]
     : [""];
-  if (candidate.includes("/") || (process.platform === "win32" && candidate.includes("\\"))) {
+  if (candidate.includes("/") || (win && candidate.includes("\\"))) {
     for (const ext of exts) if (isExecutable(candidate + ext)) return path.resolve(candidate + ext);
     return null;
   }
   for (const dir of (process.env.PATH || "").split(path.delimiter)) {
-    if (!dir) continue;
+    if (!dir || !path.isAbsolute(dir)) continue;
     for (const ext of exts) {
-      // absolute: ffmpeg runs from its own folder, so a relative PATH entry would resolve twice
-      const full = path.resolve(dir, candidate + ext);
+      const full = path.join(dir, candidate + ext);
       if (isExecutable(full)) return full;
     }
   }
@@ -50,7 +58,11 @@ function remotionPackages() {
   return [];
 }
 
-/** On POSIX, true when the file and its folder belong to this user, so nobody else could have put it there. */
+/**
+ * On POSIX, true when the file and its folder belong to this user: rules out a node_modules another
+ * account wrote in a shared folder such as /tmp. It says nothing about where the files came from (a
+ * repository you cloned belongs to you), which is why this ffmpeg is only run when asked for.
+ */
 function ownedByMe(file) {
   if (typeof process.getuid !== "function") return true;
   try {
@@ -65,7 +77,8 @@ function ownedByMe(file) {
  * The ffmpeg that Remotion installed, if there is one: looks in node_modules from `start` upward,
  * the way Node resolves a package. Nothing is imported or run to find it; it is only a path check.
  * On POSIX the binary and its folder must belong to the current user, so a node_modules someone
- * else wrote in a shared parent folder (such as /tmp) is never used.
+ * else wrote in a shared parent folder (such as /tmp) is never used. findFfmpeg runs it only for
+ * an explicit "remotion".
  */
 export function findRemotionFfmpeg(start = process.cwd()) {
   const exe = process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg";
@@ -82,21 +95,31 @@ export function findRemotionFfmpeg(start = process.cwd()) {
 }
 
 /**
- * The argument, then $AUDIO_BED_CHECK_FFMPEG, then ffmpeg on PATH, then the ffmpeg Remotion
- * installed in this project. A name or a path; must be executable.
+ * The argument, then $AUDIO_BED_CHECK_FFMPEG, then ffmpeg on PATH. A name or a path; must be
+ * executable. The value "remotion" means the ffmpeg Remotion installed in this project. It is never
+ * picked on its own: a repository you clone can carry a node_modules with any binary in it.
  */
 export function findFfmpeg(ffmpeg = null) {
   const candidate = ffmpeg || process.env.AUDIO_BED_CHECK_FFMPEG || "ffmpeg";
+  if (candidate === "remotion") {
+    const remotion = findRemotionFfmpeg();
+    if (remotion !== null) return remotion;
+    throw new DecodeError("no Remotion ffmpeg in node_modules from this folder upward");
+  }
+  if (process.platform === "win32" && BATCH.test(candidate)) {
+    throw new DecodeError(`${candidate} is a batch file; point --ffmpeg at ffmpeg.exe`);
+  }
   const resolved = which(candidate);
   if (resolved !== null) return resolved;
   if (candidate !== "ffmpeg") {
     throw new DecodeError(`ffmpeg not found at ${candidate}; check --ffmpeg or AUDIO_BED_CHECK_FFMPEG`);
   }
-  const remotion = findRemotionFfmpeg();
-  if (remotion !== null) return remotion;
-  throw new DecodeError(
-    "ffmpeg not found on PATH or in a Remotion project here; install it or set AUDIO_BED_CHECK_FFMPEG",
-  );
+  const found = findRemotionFfmpeg();
+  if (found !== null) {
+    throw new DecodeError(`ffmpeg not found on PATH; Remotion's is at ${found}, ` +
+      "pass --ffmpeg remotion or set AUDIO_BED_CHECK_FFMPEG=remotion to use it");
+  }
+  throw new DecodeError("ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG");
 }
 
 /**

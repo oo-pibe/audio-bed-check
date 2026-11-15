@@ -53,6 +53,9 @@ under -60 dBTP or a voiceover that seems to start somewhere other than `--vo-off
 the exit code. `--json` prints the numbers as a list of objects; the field list is in the command
 reference. `python -m audio_bed_check` is the same command.
 
+When the file list comes from a glob, put `--` before it: `audio-bed-check bed -- out/*`. Without
+it, a file whose name starts with `-` (say `--max-step=100`) is read as an option.
+
 ## What it needs
 
 Python 3.10 or later and ffmpeg, either on PATH or named with `--ffmpeg` or

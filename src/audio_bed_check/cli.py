@@ -4,6 +4,7 @@ import argparse
 import dataclasses
 import json
 import math
+import re
 import sys
 from importlib.metadata import version as _version
 
@@ -13,6 +14,7 @@ from .loudness import k_weight
 
 PROFILES = {"music": 10.0, "ambience": 15.0, "wcag": 20.0}
 OVERRIDE = "--min-separation"   # what the profile column says when the flag replaced the profile
+COMMANDS = ("loop", "steps", "bed", "separation")
 
 
 def _number(text: str) -> float:
@@ -43,8 +45,33 @@ def _score(text: str) -> float:
     return value
 
 
+_CONTROL = re.compile("[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def _safe(text: str) -> str:
+    """Text output of a string that came from outside (a file name, an error that quotes one): control
+    characters as \\xNN, so a name cannot move the cursor, recolor the terminal or start a new line,
+    and "::" broken up, so a CI log never reads it as a workflow command. JSON escapes on its own."""
+    def esc(m):
+        code = ord(m.group())
+        return f"\\x{code:02x}" if code <= 0xFF else f"\\u{code:x}"
+    return _CONTROL.sub(esc, str(text)).replace("::", ":\\x3a")
+
+
+class _Parser(argparse.ArgumentParser):
+    """argparse, with its error messages (which quote the arguments) escaped like everything else."""
+
+    def error(self, message):
+        super().error(_safe(message))
+
+
+def _is_help(token: str) -> bool:
+    """-h, --help, or an abbreviation of --help: what argparse reads as a help request."""
+    return token == "-h" or (len(token) >= 3 and "--help".startswith(token))
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+    p = _Parser(
         prog="audio-bed-check",
         description="Check an audio bed for loops and level steps, or a mix for voice-over-bed separation. "
                     "Exit 0 when every check passes, 1 when any fails, 2 when a check could not run.",
@@ -151,9 +178,9 @@ def _verdict(passed: bool) -> str:
 
 
 def _render(entry: dict) -> str:
-    lines = [entry["file"]]
+    lines = [_safe(entry["file"])]
     if "error" in entry:
-        lines.append(f"  error {entry['error']}")
+        lines.append(f"  error {_safe(entry['error'])}")
     if "loop" in entry:
         r = entry["loop"]
         if r["notes"]:
@@ -189,11 +216,19 @@ def _render(entry: dict) -> str:
 
 
 def main(argv=None) -> int:
-    args = build_parser().parse_args(argv)
+    argv = sys.argv[1:] if argv is None else list(argv)
+    parser = build_parser()
+    # help only on its own (`-h`, `bed -h`): with a file list from a glob, a file named --help would
+    # otherwise turn the run into exit 0
+    head = argv[:argv.index("--")] if "--" in argv else argv
+    help_at = next((i for i, t in enumerate(head) if _is_help(t)), -1)
+    if help_at >= 0 and not (len(argv) == 1 or (len(argv) == 2 and help_at == 1 and argv[0] in COMMANDS)):
+        parser.error("-h/--help cannot be combined with other arguments")
+    args = parser.parse_args(argv)
     try:
         results = _run(args)
     except (DecodeError, ValueError) as e:   # NoSpeechError and the library's argument guards are ValueErrors
-        print(f"audio-bed-check: {e}", file=sys.stderr)
+        print(f"audio-bed-check: {_safe(e)}", file=sys.stderr)
         return 2
     if args.json:
         print(json.dumps(results, indent=2))

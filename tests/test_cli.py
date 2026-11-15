@@ -269,3 +269,39 @@ def test_python_dash_m_runs_the_command():
     out = subprocess.run(argv, capture_output=True, text=True)
     assert out.returncode == 0
     assert out.stdout.startswith("audio-bed-check 0.")
+
+
+@pytest.mark.parametrize("argv", [["-h"], ["--help"], ["--he"], ["bed", "-h"], ["separation", "--help"]])
+def test_help_on_its_own_exits_0(argv):
+    with pytest.raises(SystemExit) as e:
+        cli.main(argv)
+    assert e.value.code == 0
+
+
+@pytest.mark.parametrize("argv", [
+    ["bed", "a.wav", "--help"], ["bed", "--help", "a.wav"], ["loop", "--bogus", "-h"], ["-h", "bed"],
+    ["--json", "--help"], ["separation", "m.wav", "--vo", "v.wav", "--hel"],
+])
+def test_help_with_anything_else_is_a_usage_error(argv, capsys):
+    """A glob that matches a file named --help must not turn a failing run into exit 0."""
+    with pytest.raises(SystemExit) as e:
+        cli.main(argv)
+    assert e.value.code == 2
+    assert "cannot be combined" in capsys.readouterr().err
+
+
+def test_a_file_named_help_after_dashes_is_a_file(monkeypatch):
+    seen = []
+    monkeypatch.setattr(cli, "_run", lambda args: seen.append(args.files) or [])
+    cli.main(["loop", "--", "--help"])
+    assert seen == [["--help"]]
+
+
+def test_names_in_text_output_are_escaped():
+    name = "a\n::error::x\x1b[2J\r.wav"
+    text = cli._render({"file": name, "passed": False, "error": f"{name}: no such file"})
+    assert not any(ord(c) < 32 and c != "\n" for c in text)
+    assert len(text.split("\n")) == 2
+    assert "::" not in text
+    assert cli._safe("plain/name.wav") == "plain/name.wav"
+    assert cli._safe("a\x1bb") == "a\\x1bb"

@@ -14,10 +14,37 @@ class DecodeError(RuntimeError):
     """ffmpeg is missing, or the file could not be read. The message is one sentence for the CLI."""
 
 
+# Windows runs a .cmd or .bat file through cmd.exe, which re-parses the arguments (file names
+# included) as a command line; only real executables are run
+_BATCH = re.compile(r"\.(bat|cmd)$", re.IGNORECASE)
+
+
+def _which(candidate: str) -> str | None:
+    """shutil.which, looking a bare name up in the absolute PATH entries only: a relative entry (".",
+    "bin") would search the current folder, which may be a checkout someone else wrote."""
+    if os.path.dirname(candidate):
+        resolved = shutil.which(candidate)
+        return os.path.abspath(resolved) if resolved else None
+    exts = [""]
+    if os.name == "nt":
+        pathext = os.environ.get("PATHEXT", ".EXE;.COM").split(";")
+        exts += [e for e in pathext if e and not _BATCH.search(e)]
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        if not d or not os.path.isabs(d):
+            continue
+        for ext in exts:
+            full = os.path.join(d, candidate + ext)
+            if os.path.isfile(full) and os.access(full, os.X_OK):
+                return full
+    return None
+
+
 def find_ffmpeg(ffmpeg: str | None = None) -> str:
     """The argument, then $AUDIO_BED_CHECK_FFMPEG, then PATH. A name or a path; must be executable."""
     candidate = ffmpeg or os.environ.get("AUDIO_BED_CHECK_FFMPEG") or "ffmpeg"
-    resolved = shutil.which(candidate)
+    if os.name == "nt" and _BATCH.search(candidate):
+        raise DecodeError(f"{candidate} is a batch file; point --ffmpeg at ffmpeg.exe")
+    resolved = _which(candidate)
     if resolved is None:
         if candidate != "ffmpeg":
             raise DecodeError(f"ffmpeg not found at {candidate}; check --ffmpeg or AUDIO_BED_CHECK_FFMPEG")

@@ -1,3 +1,4 @@
+import os
 import sys
 
 import numpy as np
@@ -208,3 +209,18 @@ def test_tag_text_containing_data_does_not_derail_the_parser():
     info = b"INFO" + b"INAM" + (5).to_bytes(4, "little") + b"xdata" + b"\x00"
     got, _ = _samples_from_wav(_wav_stream((b"fmt ", _fmt(1)), (b"LIST", info), (b"data", BODY)))
     assert np.allclose(got, [0.25, -0.5, 32767 / 32768])
+
+
+def test_a_relative_path_entry_is_not_searched(monkeypatch, tmp_path):
+    """"." or "bin" in PATH would run an ffmpeg from the current folder, which may be a checkout."""
+    (tmp_path / "bin").mkdir()
+    fake = tmp_path / "bin" / "ffmpeg"
+    fake.write_text("#!/bin/sh\n")
+    fake.chmod(0o755)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("AUDIO_BED_CHECK_FFMPEG", raising=False)
+    monkeypatch.setenv("PATH", os.pathsep.join(["bin", "."]))
+    with pytest.raises(DecodeError, match=NOT_ON_PATH):
+        find_ffmpeg()
+    monkeypatch.setenv("PATH", str(tmp_path / "bin"))
+    assert find_ffmpeg() == str(fake)

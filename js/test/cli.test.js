@@ -172,3 +172,11 @@ test("names in text output cannot break lines, send escape codes or start a work
   const r = run(["bed", "a.wav", "--max-step", "x\u001by"]);
   assert.doesNotMatch(r.err, /\u001b/);
 });
+
+test("a file too short for the steps check is could-not-check, exit 2, never a pass", { skip: !hasFfmpeg }, () => {
+  const short = wav(dir, "short.wav", 5);
+  const r = run(["steps", short]);
+  assert.equal(r.code, 2);
+  assert.match(r.out, /error .*short\.wav: too short to measure level steps \(needs at least/);
+  assert.equal(run(["bed", short, wav(dir, "long.wav", 20)]).code, 2);
+});

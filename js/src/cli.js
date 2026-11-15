@@ -89,8 +89,8 @@ const SEPARATION = [
     help: "override the profile's minimum" },
   { flag: "--gate", key: "gate", metavar: "DBFS", type: number, default: -44.0,
     help: "level above which the voiceover counts as speech (default -44)" },
-  { flag: "--vo-offset", key: "voOffset", metavar: "S", type: number, default: 0.0,
-    help: "where the voiceover starts in the mix, seconds (default 0)" },
+  { flag: "--vo-offset", key: "voOffset", metavar: "S", type: number, default: null,
+    help: "where the voiceover starts in the mix, seconds (default: found from the audio)" },
 ];
 
 const COMMANDS = {
@@ -316,6 +316,12 @@ function runChecks(args) {
     }
     if (args.command === "steps" || args.command === "bed") {
       const r = levelSteps(samples, sr, { maxStep: args.maxStep, edge: args.edge, weighted });
+      const short = r.notes.find((n) => n.startsWith("too short"));
+      if (short !== undefined) {
+        // nothing was measured: could not check, never a pass
+        results.push({ file, passed: false, error: `${file}: ${short}` });
+        continue;
+      }
       entry.steps = rounded(r);
       entry.passed = entry.passed && r.passed;
     }
@@ -404,6 +410,7 @@ export function render(entry) {
     lines.push(`  ${verdict(r.passed)}  separation  ${num(r.separation_lu, 2)} LU (speech ${num(r.speech_lkfs, 2)}, ` +
       `bed ${num(r.bed_lkfs, 2)} LKFS; min ${num(r.min_lu, 2)}, ${entry.profile})`);
     lines.push(`  info  peak        ${num(r.peak_dbtp, 1)} dBTP   speech windows ${r.runs}   bed windows ${r.gaps}`);
+    if (r.offset_found) lines.push(`  info  voice       starts at ${num(r.vo_offset_s, 2)}s in the mix (found)`);
     for (const w of r.warnings) lines.push(`  warn  ${w}`);
   }
   return lines.join("\n");

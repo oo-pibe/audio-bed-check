@@ -112,9 +112,12 @@ def test_vo_offset_and_the_warn_line(wavs, capsys, tmp_path):
     mix, _ = read_wav(wavs["mix"])
     padded = tmp_path / "padded.wav"
     write_wav(padded, np.concatenate([np.zeros(SR, dtype=np.float32), mix]))
-    assert cli.main(["separation", str(padded), "--vo", str(wavs["vo"])]) == 1
+    assert cli.main(["separation", str(padded), "--vo", str(wavs["vo"]), "--vo-offset", "0"]) == 1
     assert cli.main(["separation", str(padded), "--vo", str(wavs["vo"]), "--vo-offset", "1"]) == 0
     capsys.readouterr()
+    # with no --vo-offset the start is found, and the line says where
+    assert cli.main(["separation", str(padded), "--vo", str(wavs["vo"])]) == 0
+    assert "  info  voice       starts at 1.00s in the mix (found)" in capsys.readouterr().out
     # a wrong offset on the unpadded 30 s mix pushes the last run and the gap before it past the end;
     # the verdict is whatever the misaligned windows say, the warn line is what the test pins
     cli.main(["separation", str(wavs["mix"]), "--vo", str(wavs["vo"]), "--vo-offset", "10"])
@@ -127,7 +130,7 @@ def test_separation_json_shape(wavs, capsys):
     assert set(data[0]) == {"file", "passed", "profile", "separation"}
     assert set(data[0]["separation"]) == {
         "separation_lu", "speech_lkfs", "bed_lkfs", "runs", "gaps", "peak_dbtp", "min_lu", "passed",
-        "estimated_offset_s", "warnings",
+        "estimated_offset_s", "warnings", "vo_offset_s", "offset_found",
     }
 
 
@@ -305,3 +308,12 @@ def test_names_in_text_output_are_escaped():
     assert "::" not in text
     assert cli._safe("plain/name.wav") == "plain/name.wav"
     assert cli._safe("a\x1bb") == "a\\x1bb"
+
+
+def test_a_file_too_short_for_the_steps_check_is_could_not_check(wavs, tmp_path, capsys):
+    short = tmp_path / "short.wav"
+    write_wav(short, textured(5, 9))
+    assert cli.main(["steps", str(short)]) == 2
+    assert cli.main(["bed", str(short), str(wavs["clean"])]) == 2
+    out = capsys.readouterr().out
+    assert f"  error {short}: too short to measure level steps (needs at least" in out

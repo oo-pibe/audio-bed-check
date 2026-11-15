@@ -309,7 +309,7 @@ function estimateOffset(vo, mixWeighted, sr, runs, voOffset = 0.0) {
  * measured in the MIX and compared with the bed-only gaps between them (90th percentile of 50 ms
  * K-weighted blocks per window).
  */
-export function separation(vo, mix, sr, { minLu = 10.0, gateDbfs = -44.0, voOffset = 0.0 } = {}) {
+export function separation(vo, mix, sr, { minLu = 10.0, gateDbfs = -44.0, voOffset = null } = {}) {
   const runs = speechRuns(vo, sr, gateDbfs);
   if (runs.length === 0) {
     throw new NoSpeechError(`no speech found in the voiceover above ${pyG(gateDbfs)} dBFS`);
@@ -323,6 +323,16 @@ export function separation(vo, mix, sr, { minLu = 10.0, gateDbfs = -44.0, voOffs
     );
   }
   const weighted = kWeight(mix, sr); // once: the windows and the offset estimate both read it
+  // no offset given: measure where the voice is found, or from 0 with a warning when it is not
+  const auto = voOffset === null || voOffset === undefined;
+  let found = false, estimate;
+  if (auto) {
+    estimate = estimateOffset(vo, weighted, sr, runs, 0.0);
+    found = estimate !== null;
+    voOffset = found ? estimate : 0.0;
+  } else {
+    estimate = estimateOffset(vo, weighted, sr, runs, voOffset);
+  }
   const blocks = blockLoudness(weighted, sr, SEP_BLOCK, SEP_BLOCK);
   const level = ([a, b]) => windowLevel(blocks, a + voOffset, b + voOffset);
   const speech = runs.map(level).filter((v) => v !== null);
@@ -337,17 +347,19 @@ export function separation(vo, mix, sr, { minLu = 10.0, gateDbfs = -44.0, voOffs
   }
   const sep = speechLkfs - bedLkfs;
   const peak = truePeak(mix, sr);
-  const estimate = estimateOffset(vo, weighted, sr, runs, voOffset);
   const warnings = [];
   const dropped = runs.length + gaps.length - speech.length - bed.length;
   if (dropped) warnings.push(`${dropped} window(s) fall outside the mix; check --vo-offset`);
-  if (estimate !== null && Math.abs(estimate - voOffset) > SEP_ALIGN_TOLERANCE + 1e-9) {
+  if (auto && !found) {
+    warnings.push("could not find where the voiceover starts in the mix; measured from 0.0s, " +
+      "pass --vo-offset if it starts later");
+  } else if (estimate !== null && Math.abs(estimate - voOffset) > SEP_ALIGN_TOLERANCE + 1e-9) {
     warnings.push(`the voiceover seems to start at ${pyFixed(estimate, 1)}s in the mix; check --vo-offset`);
   }
   if (peak > -1.0) warnings.push("mix true peak above -1 dBTP");
   return {
     separation_lu: sep, speech_lkfs: speechLkfs, bed_lkfs: bedLkfs, runs: runs.length,
     gaps: gaps.length, peak_dbtp: peak, min_lu: minLu, passed: sep >= minLu,
-    estimated_offset_s: estimate, warnings,
+    estimated_offset_s: estimate, warnings, vo_offset_s: voOffset, offset_found: found,
   };
 }

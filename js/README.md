@@ -45,7 +45,7 @@ speaking, and measures how far above the bed it sits, in loudness units, against
 10 LU over music, 15 over ambience, 20 for WCAG.
 
 Exit 0 when every check passes, 1 when any fails, 2 when it could not run (a bad flag, an
-unreadable file, no speech found in the voiceover). A `warn` line never changes the exit code.
+unreadable file, a bed under 6.5 seconds, no speech found in the voiceover). A `warn` line never changes the exit code.
 `--json` prints the numbers as a list of objects.
 
 When the file list comes from a glob, put `--` before it: `npx audio-bed-check bed -- out/*`.
@@ -61,13 +61,15 @@ npx remotion render src/index.ts Promo out/bed.wav --props='{"voice":false}'
 npx audio-bed-check bed out/bed.wav
 
 npx remotion render src/index.ts Promo out/promo.mp4
-npx audio-bed-check separation out/promo.mp4 --vo public/voice.wav --vo-offset 9
+npx audio-bed-check separation out/promo.mp4 --vo public/voice.wav
 ```
 
 In a Remotion project with no ffmpeg of its own, add `--ffmpeg remotion` to each check.
 
-`--vo-offset` is where the voiceover starts in the mix, in seconds (here, a `<Sequence from={9 * 30}>`
-at 30 fps).
+The voiceover here starts 9 seconds in (a `<Sequence from={9 * 30}>` at 30 fps). The check finds
+that from the audio and prints it as `info voice starts at 9.00s in the mix (found)`. When the voice
+is buried too deep under the bed to locate, it says so; that mix fails either way. `--vo-offset 9`
+sets the start by hand.
 
 ## Where it finds ffmpeg
 

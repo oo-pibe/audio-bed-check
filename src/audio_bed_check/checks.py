@@ -245,8 +245,9 @@ class SeparationResult:
     best matches the mix's (0.1 s resolution), None when either is under 0.4 s or the match is too
     weak to trust (a voice buried under the bed). warnings (named so
     because they are actionable, unlike the other checks' notes: a hot peak, windows dropped by the
-    offset, an offset that disagrees with the estimate) never fail. Values are full precision; the
-    CLI rounds."""
+    offset, an offset that disagrees with the estimate) never fail. vo_offset_s is the offset the
+    windows were measured at, and offset_found is True when it was found from the audio rather than
+    given. Values are full precision; the CLI rounds."""
 
     separation_lu: float
     speech_lkfs: float
@@ -258,6 +259,8 @@ class SeparationResult:
     passed: bool
     estimated_offset_s: float | None = None
     warnings: tuple[str, ...] = ()
+    vo_offset_s: float = 0.0
+    offset_found: bool = False
 
 
 # speech_runs and gaps_between are module-public for the tests; they are not re-exported by the package.
@@ -362,7 +365,7 @@ def _estimate_offset(vo: np.ndarray, mix_weighted: np.ndarray, sr: int, runs: li
 
 
 def separation(vo: np.ndarray, mix: np.ndarray, sr: int, *, min_lu: float = 10.0, gate_dbfs: float = -44.0,
-               vo_offset: float = 0.0) -> SeparationResult:
+               vo_offset: float | None = None) -> SeparationResult:
     """Is the voice on top of the bed?
 
     Speech windows come from the voiceover on its own; each is measured in the MIX (voice plus bed)
@@ -372,7 +375,10 @@ def separation(vo: np.ndarray, mix: np.ndarray, sr: int, *, min_lu: float = 10.0
 
     Bed-only windows at or under -70 LKFS mean the mix holds no bed (the voiceover given as the mix,
     usually) and raise NoSpeechError. The voiceover's start in the mix is estimated from the two
-    envelopes; when the estimate is trusted and more than 0.2 s from `vo_offset` a warning names it.
+    envelopes. With `vo_offset` None (the default) the windows are measured at that estimate, or at
+    0 with a warning when there is no trusted estimate (a voice buried under the bed does not match,
+    and such a mix fails at any offset). With a `vo_offset` given, a trusted estimate more than 0.2 s
+    from it is named in a warning.
     """
     runs = speech_runs(vo, sr, gate_dbfs)
     if not runs:
@@ -384,6 +390,14 @@ def separation(vo: np.ndarray, mix: np.ndarray, sr: int, *, min_lu: float = 10.0
             f"({SEP_MIN_GAP:g}s after a {SEP_GUARD:g}s guard at each end); either --vo is the mix rather "
             "than the voiceover alone, or its noise floor is above --gate")
     weighted = k_weight(mix, sr)   # once: the windows and the offset estimate both read it
+    auto = vo_offset is None
+    found = False
+    if auto:
+        estimate = _estimate_offset(vo, weighted, sr, runs, 0.0)
+        found = estimate is not None
+        vo_offset = estimate if found else 0.0
+    else:
+        estimate = _estimate_offset(vo, weighted, sr, runs, vo_offset)
     blocks = block_loudness(weighted, sr, SEP_BLOCK, SEP_BLOCK)
     speech = [v for v in (_window_level(blocks, a + vo_offset, b + vo_offset) for a, b in runs)
               if v is not None]
@@ -395,14 +409,16 @@ def separation(vo: np.ndarray, mix: np.ndarray, sr: int, *, min_lu: float = 10.0
         raise NoSpeechError("the bed-only windows are silent in the mix; is MIX the rendered mix?")
     sep = speech_lkfs - bed_lkfs
     peak = true_peak(mix, sr)
-    estimate = _estimate_offset(vo, weighted, sr, runs, vo_offset)
     warnings: tuple[str, ...] = ()
     dropped = len(runs) + len(gaps) - len(speech) - len(bed)
     if dropped:
         warnings += (f"{dropped} window(s) fall outside the mix; check --vo-offset",)
-    if estimate is not None and abs(estimate - vo_offset) > SEP_ALIGN_TOLERANCE + 1e-9:
+    if auto and not found:
+        warnings += ("could not find where the voiceover starts in the mix; measured from 0.0s, "
+                     "pass --vo-offset if it starts later",)
+    elif estimate is not None and abs(estimate - vo_offset) > SEP_ALIGN_TOLERANCE + 1e-9:
         warnings += (f"the voiceover seems to start at {estimate:.1f}s in the mix; check --vo-offset",)
     if peak > -1.0:
         warnings += ("mix true peak above -1 dBTP",)
     return SeparationResult(sep, speech_lkfs, bed_lkfs, len(runs), len(gaps), peak, min_lu, sep >= min_lu,
-                            estimate, warnings)
+                            estimate, warnings, vo_offset, found)

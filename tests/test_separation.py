@@ -50,7 +50,10 @@ def test_vo_offset_shifts_the_windows():
     vo, mix = mix_at(10.0)
     shifted = np.concatenate([np.zeros(SR, dtype=np.float32), mix])
     assert abs(separation(vo, shifted, SR, vo_offset=1.0).separation_lu - expected(10.0)) < 1.0
-    assert separation(vo, shifted, SR).separation_lu < expected(10.0) - 2.0
+    assert separation(vo, shifted, SR, vo_offset=0.0).separation_lu < expected(10.0) - 2.0   # a wrong one
+    found = separation(vo, shifted, SR)   # none given: found from the audio
+    assert found.offset_found and found.vo_offset_s == pytest.approx(1.0, abs=0.05)
+    assert abs(found.separation_lu - expected(10.0)) < 1.0
 
 
 def test_a_negative_offset_does_not_wrap_to_the_end_of_the_mix():
@@ -140,10 +143,13 @@ def test_a_buried_voice_gives_no_estimate_and_no_warning(seed):
 @pytest.mark.parametrize("seed", range(4))
 def test_a_clear_voice_is_still_found_three_seconds_in(seed):
     vo, mix = irregular_mix(10.0, seed, pad=3.0)
-    r = separation(vo, mix, SR)
+    r = separation(vo, mix, SR, vo_offset=0.0)
     assert r.estimated_offset_s == pytest.approx(3.0, abs=0.05)
     assert "the voiceover seems to start at 3.0s in the mix; check --vo-offset" in r.warnings
     assert separation(vo, mix, SR, vo_offset=3.0).warnings == ()
+    found = separation(vo, mix, SR)   # none given: measured where it was found, nothing to warn about
+    assert found.offset_found and found.vo_offset_s == pytest.approx(3.0, abs=0.05)
+    assert found.warnings == ()
 
 
 def test_separation_k_weights_each_file_once(monkeypatch):
@@ -166,7 +172,7 @@ def test_the_offset_is_estimated_and_a_wrong_one_is_named():
     vo, mix = mix_at(10.0)
     assert separation(vo, mix, SR).estimated_offset_s == pytest.approx(0.0, abs=0.05)
     padded = np.concatenate([np.zeros(3 * SR, dtype=np.float32), mix])
-    wrong = separation(vo, padded, SR)
+    wrong = separation(vo, padded, SR, vo_offset=0.0)
     assert wrong.estimated_offset_s == pytest.approx(3.0, abs=0.05)
     assert "the voiceover seems to start at 3.0s in the mix; check --vo-offset" in wrong.warnings
     right = separation(vo, padded, SR, vo_offset=3.0)
@@ -230,3 +236,10 @@ def test_speech_runs_gate_on_the_power_of_all_channels():
     # voice on one channel only: RMS over every sample of both channels is 3 dB under the mono figure
     one = np.stack([vo, np.zeros_like(vo)], axis=1)
     assert speech_runs(one, SR) == speech_runs(gain(vo, -3.0103), SR)
+
+
+def test_a_voice_that_cannot_be_found_is_measured_from_zero_with_a_warning():
+    vo, mix = irregular_mix(-10.0, 0, pad=3.0)   # 10 dB under a textured bed: no trusted match
+    r = separation(vo, mix, SR, gate_dbfs=-70.0)
+    assert not r.offset_found and r.vo_offset_s == 0.0 and not r.passed
+    assert any(w.startswith("could not find where the voiceover starts") for w in r.warnings)

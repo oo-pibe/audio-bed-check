@@ -106,6 +106,10 @@ def mixes():
     yield "no pauses", noise(10, 112, rms_dbfs=-18), textured(10, 212), {}
     yield "silent bed", vo, vo, {}
     yield "outside the mix", vo, (vo + bed[:len(vo)]).astype(np.float32), {"voOffset": 100.0}
+    yield "offset 3 s, wrong one given", vo, shifted, {"voOffset": 0.0}
+    buried = bed.copy()
+    buried[int(3.0 * SR):int(3.0 * SR) + len(vo)] += gain(vo, -22)
+    yield "buried 3 s in, not found", vo, buried.astype(np.float32), {"gateDbfs": -70.0}
 
 
 def same(a, b) -> bool:
@@ -143,7 +147,7 @@ def py_result(case):
             mix, _ = decode(case["mix"])
             o = case["opts"]
             r = separation(vo, mix, sr, min_lu=o.get("minLu", 10.0), gate_dbfs=o.get("gateDbfs", -44.0),
-                           vo_offset=o.get("voOffset", 0.0))
+                           vo_offset=o.get("voOffset"))
         else:
             x, sr = decode(case["file"])
             w = k_weight(x, sr)
@@ -264,6 +268,8 @@ def main():
 
     # the command line itself: odd orders, abbreviations, bad values
     b, m, v = files[0], str(tmp / "mix00.wav"), str(tmp / "vo00.wav")
+    short = str(tmp / "short.wav")
+    write_wav(short, textured(5, 77), clip=True)
     odd = [
         ["loop", b, "--json", b], ["loop", "-x"], ["loop", "--version"], ["bed", b, "--m", "3"],
         ["bed", b, "--max-s=2", "-x"], ["bed", b, "--max-step", "1e400"],
@@ -281,6 +287,7 @@ def main():
         ["bed", b, "--loop-threshold", "1"], ["bed", b, "--max-step", "-1"], ["bed", b, "--max-step", "-.5"],
         ["steps", str(tmp / "missing.wav"), b], ["bed", "-my file.wav"], ["--vers"],
         ["steps", b, "--ffmpeg", str(tmp / "no-such-ffmpeg")],
+        ["steps", short], ["bed", short, b], ["loop", short],
     ]
     for argv in odd:
         compare(argv, " ".join(argv) or "(no arguments)")

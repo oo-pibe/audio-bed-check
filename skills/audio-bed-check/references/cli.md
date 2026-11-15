@@ -16,11 +16,12 @@ more than two channels are downmixed to two by ffmpeg; only the first audio trac
   `error` instead of sections. The fields:
   - `loop`: `score`, `period_s` (null when no repeat reached the threshold), `threshold`,
     `min_period_s`, `passed`, `notes`.
-  - `steps`: `step_db`, `step_at_s` (null when too short or nothing changed), `range_db`,
+  - `steps`: `step_db`, `step_at_s` (null when nothing changed), `range_db`,
     `transient_db`, `peak_dbtp`, `max_step`, `passed`, `notes`.
   - `separation`: `separation_lu`, `speech_lkfs`, `bed_lkfs`, `runs`, `gaps`, `peak_dbtp`,
     `min_lu`, `passed`, `estimated_offset_s` (null when either file is under 0.4 s or the match is too weak to trust),
-    `warnings`.
+    `warnings`, `vo_offset_s` (the offset the windows were measured at), `offset_found` (true when
+    it was found from the audio rather than given).
   - top level, separation only: `profile`, the profile name, or `--min-separation` when that flag
     replaced it.
 
@@ -60,7 +61,7 @@ exits 2 after the other files are checked; in `--json` its entry is `{"file", "p
 - `--profile music|ambience|wcag` (music): the minimum separation, 10, 15 or 20 LU.
 - `--min-separation LU`: overrides the profile's minimum.
 - `--gate DBFS` (-44): the level above which the voiceover counts as speech.
-- `--vo-offset S` (0): where the voiceover starts in the mix.
+- `--vo-offset S` (found from the audio): where the voiceover starts in the mix.
 
 ## Output
 
@@ -76,8 +77,9 @@ zero prints as 0.0, never -0.0.
   a second, so no repeat that long could be seen. Passes, with the score 0.
 - "repeats every Ns, under --min-period Ms, not flagged": a strong repeat shorter than the minimum
   period was found. Passes. Lower `--min-period` if you want it flagged.
-- "too short to measure level steps (needs at least 6.5s)": fewer than 45 half-second blocks (one
-  every 0.1 s) remain after the edges are dropped; 6.5 s at the default edge. Passes, with zeros.
+- "FILE: too short to measure level steps (needs at least 6.5s)": an `error` line. Fewer than 45
+  half-second blocks (one every 0.1 s) remain after the edges are dropped; 6.5 s at the default
+  edge. Nothing was measured, so the file is not passed: exit 2.
 - "no level change anywhere": the steps check on digital silence or a constant tone; every boundary
   measures 0.0 dB, so no place is named. Passes.
 - "every block is under -70 LKFS; nothing to measure": the steps check on a file that varies but
@@ -115,9 +117,14 @@ zero prints as 0.0, never -0.0.
   every gap window, shifted by the offset, lands outside the mix (before its start or past its
   end). Exit 2.
 - "mix true peak above -1 dBTP": a warning on the separation output; the mix has no headroom.
-- "the voiceover seems to start at Ns in the mix; check --vo-offset": a warning. The voiceover's
-  loudness envelope inside its speech runs was cross-correlated with the mix's, and the best match
-  is more than 0.2 s from `--vo-offset`. The figure is also in `--json` as `estimated_offset_s`
+- "starts at Ns in the mix (found)": an `info` line. No `--vo-offset` was given and the voiceover's
+  loudness envelope inside its speech runs matched the mix's there; the windows were measured at
+  that offset.
+- "could not find where the voiceover starts in the mix; measured from 0.0s, pass --vo-offset if it
+  starts later": a warning. No `--vo-offset` was given and no match could be trusted, usually a
+  voice buried under the bed, which fails at any offset.
+- "the voiceover seems to start at Ns in the mix; check --vo-offset": a warning, only with
+  `--vo-offset` given. The best match is more than 0.2 s from it. The figure is also in `--json` as `estimated_offset_s`
   (0.1 s resolution). A read with regular pauses can match nearly as well at several lags; the given
   offset stands when its match is within 2% of the best. The estimate is trusted only when, at the
   lag found, the voiceover's level inside its speech runs and the mix's level at the same moments

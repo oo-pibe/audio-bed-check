@@ -115,7 +115,9 @@ Two user errors are caught. If the bed-only windows read -70 LKFS or less in the
 no bed (usually the voiceover was given as the mix) and the check stops with exit 2. And the
 voiceover's loudness envelope inside its speech runs is cross-correlated with the mix's, at 0.1 s
 resolution over plus or minus the mix's length; the best match is reported as
-`estimated_offset_s`, and when it is more than 0.2 s from `--vo-offset` a warning names it. A read
+`estimated_offset_s`. With no `--vo-offset` the windows are measured there (`vo_offset_s`,
+`offset_found`), or at 0 with a warning when no match can be trusted; with one given, a match more
+than 0.2 s from it is named in a warning. A read
 with regular pauses matches nearly as well at several lags, so the given offset stands when its
 match is within 2% of the best. The estimate is trusted only when, at the lag found, the
 voiceover's level inside its speech runs and the mix's level at the same moments correlate at 0.5

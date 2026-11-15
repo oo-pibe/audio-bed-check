@@ -16,11 +16,11 @@ channel and summed, as BS.1770 does); only the first audio track is read.
 - The bed on its own, before it goes under anything: `audio-bed-check bed BED.wav`. Runs `loop`
   (does it repeat?) and `steps` (does the level lurch?). Several files at once are fine.
 - A rendered mix with a voiceover: `audio-bed-check separation MIX.mp4 --vo READ.wav`. Needs the
-  voiceover file on its own, exactly as it was placed in the mix (`--vo-offset` if it does not start
-  at zero).
+  voiceover file on its own. Where it starts in the mix is found from the audio; `--vo-offset`
+  sets it by hand.
 
 Exit 0 means every check passed, 1 means at least one failed, 2 means a check could not run (no
-ffmpeg, unreadable file, no speech found). `warn` lines (a silent file, a hot peak, an offset that
+ffmpeg, unreadable file, a bed under 6.5 s, no speech found). `warn` lines (a silent file, a hot peak, an offset that
 disagrees with the voiceover) never change the exit code; a `warn` line is something to look at. Add `--json` to get the numbers as a list
 of objects; `--edge`, `--gate` and `--vo-offset` are not recorded in it.
 
@@ -44,9 +44,10 @@ and `steps` 6.5 s at the defaults; a shorter file reports ok with a note, not a 
   back and a join does not.
 - `separation`: the mix inside the voiceover's speech windows against the bed-only gaps between
   them, in LU. Fails under the profile's minimum: `music` 10, `ambience` 15, `wcag` 20. The read
-  needs pauses of 0.9 s or more. When the voiceover seems to start somewhere other than
-  `--vo-offset` (more than 0.2 s off), a `warn` line names where; rerun with that offset. A voice
-  too far under the bed to match gives no estimate and no warning. A bed
+  needs pauses of 0.9 s or more. With no `--vo-offset`, the voice's start is
+  found from the audio and printed as an `info voice` line. A voice too far under the bed to match
+  is measured from 0 with a `warn` line; such a mix fails anyway. With `--vo-offset` given and the
+  voice found more than 0.2 s away, a `warn` line names where. A bed
   ducked under the speech barely changes the figure, so treat the floors as approximate for ducked
   mixes.
 

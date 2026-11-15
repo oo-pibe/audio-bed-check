@@ -119,8 +119,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--min-separation", type=_positive, metavar="LU", help="override the profile's minimum")
     sp.add_argument("--gate", type=_number, default=-44.0, metavar="DBFS",
                     help="level above which the voiceover counts as speech (default -44)")
-    sp.add_argument("--vo-offset", type=_number, default=0.0, metavar="S",
-                    help="where the voiceover starts in the mix, seconds (default 0)")
+    sp.add_argument("--vo-offset", type=_number, default=None, metavar="S",
+                    help="where the voiceover starts in the mix, seconds (default: found from the audio)")
     common(sp)
     return p
 
@@ -161,6 +161,10 @@ def _run(args) -> list[dict]:
             entry["passed"] = entry["passed"] and r.passed
         if args.command in ("steps", "bed"):
             r = level_steps(samples, sr, max_step=args.max_step, edge=args.edge, weighted=weighted)
+            short = next((n for n in r.notes if n.startswith("too short")), None)
+            if short is not None:   # nothing was measured: could not check, never a pass
+                results.append({"file": path, "passed": False, "error": f"{path}: {short}"})
+                continue
             entry["steps"] = _result(r)
             entry["passed"] = entry["passed"] and r.passed
         results.append(entry)
@@ -210,6 +214,8 @@ def _render(entry: dict) -> str:
                      f"min {_num(r['min_lu'], 2)}, {entry['profile']})")
         lines.append(f"  info  peak        {_num(r['peak_dbtp'], 1)} dBTP   speech windows {r['runs']}   "
                      f"bed windows {r['gaps']}")
+        if r["offset_found"]:
+            lines.append(f"  info  voice       starts at {_num(r['vo_offset_s'], 2)}s in the mix (found)")
         for w in r["warnings"]:
             lines.append(f"  warn  {w}")
     return "\n".join(lines)

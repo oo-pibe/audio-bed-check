@@ -12,7 +12,7 @@ from .checks import (
 from .decode import DecodeError, decode
 from .loudness import block_loudness, k_weight, momentary, true_peak
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "DecodeError", "LoopResult", "NoSpeechError", "SeparationResult", "StepsResult",

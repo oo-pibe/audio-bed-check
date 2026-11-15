@@ -79,11 +79,19 @@ export function loopScore(samples, sr, { minPeriod = 6.0, threshold = 0.9, weigh
     throw new ValueError("threshold must be between 0 (exclusive) and 1");
   }
   const x = channels(samples);
+  if (x[0].length / sr < 2 * minPeriod) {
+    // not a guess: no such repeat fits
+    return loopResult(0.0, null, threshold, minPeriod, true, [
+      `shorter than ${pyG(2 * minPeriod)}s, so no repeat of ${pyG(minPeriod)}s or more can play twice`,
+    ]);
+  }
+  // long enough to hold a repeat but too short to measure one (a --min-period of about 3.3 s or
+  // less, on a file under about 6.7 s); the CLI reports this as could not check
   const tooShort = loopResult(0.0, null, threshold, minPeriod, true, [
-    `too short to test for a repeat longer than ${pyG(minPeriod)}s`,
+    `too short to test for a repeat of ${pyG(minPeriod)}s or more`,
   ]);
-  if (x[0].length / sr < 2 * minPeriod + 1) return tooShort;
   const env = blockLoudness(weightedOf(samples, sr, weighted), sr, WINDOW, HOP);
+  if (env.length < 2) return tooShort; // under one 400 ms window, with a tiny minPeriod
   if (ptp(env) < 0.01) {
     // silence or a constant tone; a steady bed still varies by tenths of a dB
     return loopResult(0.0, null, threshold, minPeriod, true, ["level is constant; nothing to correlate"]);
@@ -264,7 +272,8 @@ function pearson(a, b) {
 }
 
 /** Where the voiceover seems to start in the mix, 0.1 s resolution; null when it cannot be trusted. */
-function estimateOffset(vo, mixWeighted, sr, runs, voOffset = 0.0) {
+// with trusted false the best lag is returned without the Pearson test: the closest match, maybe wrong
+function estimateOffset(vo, mixWeighted, sr, runs, voOffset = 0.0, trusted = true) {
   const vRaw = blockLoudness(kWeight(vo, sr), sr, WINDOW, HOP).map((v) => Math.max(v, SEP_SILENT_LKFS));
   const mRaw = blockLoudness(mixWeighted, sr, WINDOW, HOP).map((v) => Math.max(v, SEP_SILENT_LKFS));
   if (vRaw.length === 0 || mRaw.length === 0) return null;
@@ -300,7 +309,7 @@ function estimateOffset(vo, mixWeighted, sr, runs, voOffset = 0.0) {
   }
   if (a.length < 3) return null;
   if (ptp(a) < 1e-9 || ptp(b) < 1e-9) return null;
-  if (pearson(a, b) < SEP_ALIGN_MIN_R) return null;
+  if (trusted && pearson(a, b) < SEP_ALIGN_MIN_R) return null;
   return pyRound(lag * HOP, 2);
 }
 
@@ -334,18 +343,42 @@ export function separation(vo, mix, sr, { minLu = 10.0, gateDbfs = -44.0, voOffs
     estimate = estimateOffset(vo, weighted, sr, runs, voOffset);
   }
   const blocks = blockLoudness(weighted, sr, SEP_BLOCK, SEP_BLOCK);
-  const level = ([a, b]) => windowLevel(blocks, a + voOffset, b + voOffset);
-  const speech = runs.map(level).filter((v) => v !== null);
-  const bed = gaps.map(level).filter((v) => v !== null);
-  if (speech.length === 0 || bed.length === 0) {
-    throw new NoSpeechError("the voiceover's speech windows fall outside the mix; check --vo-offset");
-  }
-  const speechLkfs = mean(speech);
-  const bedLkfs = mean(bed);
-  if (bedLkfs <= SEP_SILENT_LKFS) {
-    throw new NoSpeechError("the bed-only windows are silent in the mix; is MIX the rendered mix?");
-  }
+  const measure = (offset) => {
+    const level = ([a, b]) => windowLevel(blocks, a + offset, b + offset);
+    const speech = runs.map(level).filter((v) => v !== null);
+    const bed = gaps.map(level).filter((v) => v !== null);
+    if (speech.length === 0 || bed.length === 0) {
+      throw new NoSpeechError("the voiceover's speech windows fall outside the mix; check --vo-offset");
+    }
+    const speechLkfs = mean(speech);
+    const bedLkfs = mean(bed);
+    if (bedLkfs <= SEP_SILENT_LKFS) {
+      throw new NoSpeechError("the bed-only windows are silent in the mix; is MIX the rendered mix?");
+    }
+    return { speech, bed, speechLkfs, bedLkfs };
+  };
+  const { speech, bed, speechLkfs, bedLkfs } = measure(voOffset);
   const sep = speechLkfs - bedLkfs;
+  if (auto && !found) {
+    // the closest match may be the true start; if the verdict there differs, the start decides it
+    const closest = estimateOffset(vo, weighted, sr, runs, 0.0, false);
+    if (closest !== null && Math.abs(closest) > SEP_ALIGN_TOLERANCE + 1e-9) {
+      let alt = null;
+      try {
+        const m = measure(closest);
+        alt = m.speechLkfs - m.bedLkfs;
+      } catch (e) {
+        if (!(e instanceof NoSpeechError)) throw e;
+      }
+      if (alt !== null && (alt >= minLu) !== (sep >= minLu)) {
+        throw new NoSpeechError(
+          "could not tell where the voiceover starts in the mix, and it decides the result: " +
+          `from 0.0s the separation is ${pyFixed(sep, 2)} LU, from ${pyFixed(closest, 1)}s (the closest match) ` +
+          `${pyFixed(alt, 2)} LU; pass --vo-offset`,
+        );
+      }
+    }
+  }
   const peak = truePeak(mix, sr);
   const warnings = [];
   const dropped = runs.length + gaps.length - speech.length - bed.length;

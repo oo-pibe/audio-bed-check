@@ -73,8 +73,11 @@ zero prints as 0.0, never -0.0.
 
 ## Messages
 
-- "too short to test for a repeat longer than Ns": the file is under twice the minimum period plus
-  a second, so no repeat that long could be seen. Passes, with the score 0.
+- "shorter than Ns, so no repeat of Ms or more can play twice": the file is under twice the
+  minimum period, so it cannot contain a loop that long. Passes, with the score 0.
+- "FILE: too short to test for a repeat of Ns or more": an `error` line, exit 2. The file could
+  hold such a repeat but is too short to measure one; this happens only with a `--min-period`
+  of about 3.3 s or less, on a file under about 6.7 s.
 - "repeats every Ns, under --min-period Ms, not flagged": a strong repeat shorter than the minimum
   period was found. Passes. Lower `--min-period` if you want it flagged.
 - "FILE: too short to measure level steps (needs at least 6.5s)": an `error` line. Fewer than 45
@@ -123,7 +126,12 @@ zero prints as 0.0, never -0.0.
   that offset.
 - "could not find where the voiceover starts in the mix; measured from 0.0s, pass --vo-offset if it
   starts later": a warning. No `--vo-offset` was given and no match could be trusted, usually a
-  voice buried under the bed, which fails at any offset.
+  voice buried under the bed. The mix was measured from 0 and at the closest match, and both gave
+  the same verdict.
+- "could not tell where the voiceover starts in the mix, and it decides the result: from 0.0s the
+  separation is N LU, from Ms (the closest match) N LU; pass --vo-offset": exit 2, like the
+  other separation errors. No match could be trusted, and one of the two starts passes while the other fails. This
+  happens with a bed that has a speech-like rhythm of its own. Pass the real start.
 - "the voiceover seems to start at Ns in the mix; check --vo-offset": a warning, only with
   `--vo-offset` given. The best match is more than 0.2 s from it. The figure is also in `--json` as `estimated_offset_s`
   (0.1 s resolution). A read with regular pauses can match nearly as well at several lags; the given

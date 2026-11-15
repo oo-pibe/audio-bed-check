@@ -51,7 +51,7 @@ unreadable file, a bed under 6.5 seconds, no speech found in the voiceover). A `
 When the file list comes from a glob, put `--` before it: `npx audio-bed-check bed -- out/*`.
 Without it, a file whose name starts with `-` (say `--max-step=100`) is read as an option.
 
-On an Apple A18 Pro laptop with 8 GB of memory, `bed` on a 10-minute mono file takes about 8 s of
+On an Apple A18 Pro laptop with 8 GB of memory, `bed` on a 10-minute mono file takes about 5 s of
 processor time and 0.9 GB of memory; an hour takes about 50 s and 1.8 GB.
 
 ## With Remotion
@@ -70,8 +70,9 @@ npx audio-bed-check separation out/promo.mp4 --vo public/voice.wav
 In a Remotion project with no ffmpeg of its own, add `--ffmpeg remotion` to each check.
 
 The voiceover here starts 9 seconds in (a `<Sequence from={9 * 30}>` at 30 fps). The check finds
-that from the audio and prints it as `info voice starts at 9.00s in the mix (found)`. When the voice
-is buried too deep under the bed to locate, it says so; that mix fails either way. `--vo-offset 9`
+that from the audio and prints it as `info voice starts at 9.00s in the mix (found)`. When it can't
+locate the voice, it measures from 0 and at the closest match: if both agree, that's the result,
+with a warning; if they disagree, it exits 2 and asks for `--vo-offset`. `--vo-offset 9`
 sets the start by hand.
 
 ## Where it finds ffmpeg

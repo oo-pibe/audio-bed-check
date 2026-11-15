@@ -25,8 +25,9 @@ disagrees with the voiceover) never change the exit code; a `warn` line is somet
 of objects; `--edge`, `--gate` and `--vo-offset` are not recorded in it.
 
 Check the bed before it is encoded: ffmpeg's AAC at 128k rebuilt exact loops of steady noise to
-scores between 0.88 and 0.97, some under the threshold. `loop` needs 13 s
-and `steps` 6.5 s at the defaults; a shorter file reports ok with a note, not a verdict.
+scores between 0.88 and 0.97, some under the threshold. A file under 12 s cannot play a 6 s loop
+twice, so `loop` reports it ok with a note saying so; `steps` needs 6.5 s and reports a shorter
+file as an error (exit 2).
 
 ## Reading the result
 
@@ -35,7 +36,8 @@ and `steps` 6.5 s at the defaults; a shorter file reports ok with a note, not a 
   is at or longer than `--min-period` (6 s). A shorter repeat is reported as a note, because music
   repeats at bar length and that is not a loop. A loop in part of the file, under a fade or at
   changing gain is still found. A repeat is seen only when the repeating stretch is at least one
-  period plus 10 s long, so a 6 to 8 s clip played twice usually is not; a repeat longer than the
+  period plus 10 s long (a third of a file under 30 s), so a 6 to 8 s clip played twice inside a
+  longer bed usually is not; a repeat longer than the
   file minus about 10.5 s is not seen either.
 - `steps`: fails on a sustained step above `--max-step` (6 dB): the mean level over the 2 s after a
   0.5 s gap at a boundary against the 2 s before, on half-second blocks every 0.1 s. A change held

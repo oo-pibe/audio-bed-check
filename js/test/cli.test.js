@@ -138,6 +138,8 @@ test("argparse's order of play (found in review)", () => {
   assert.equal(parse(["separation", "m.wav", "--vo", "-"]).vo, "-");
   // a value that is not a number says so, without argparse's internal type names
   assert.match(run(["bed", "a.wav", "--max-step", "abc"]).err, /argument --max-step: must be a number, got abc/);
+  // full-width and Arabic-Indic digits are refused, as Python now refuses them
+  for (const v of ["\uff13", "\u0663"]) assert.equal(run(["bed", "a.wav", "--max-step", v]).code, 2);
 });
 
 test("a signal is reported by number, as Python does", { skip: process.platform === "win32" }, () => {
@@ -179,4 +181,10 @@ test("a file too short for the steps check is could-not-check, exit 2, never a p
   assert.equal(r.code, 2);
   assert.match(r.out, /error .*short\.wav: too short to measure level steps \(needs at least/);
   assert.equal(run(["bed", short, wav(dir, "long.wav", 20)]).code, 2);
+});
+
+test("a file too short to measure a repeat it could hold is could-not-check, exit 2", { skip: !hasFfmpeg }, () => {
+  const r = run(["loop", wav(dir, "tiny.wav", 4.5), "--min-period", "2"]);
+  assert.equal(r.code, 2);
+  assert.match(r.out, /error .*tiny\.wav: too short to test for a repeat of 2s or more/);
 });

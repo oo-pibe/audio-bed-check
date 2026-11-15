@@ -81,8 +81,8 @@ even when only part of the file repeats, or it fades out, or each repeat sits at
 Among the peaks that reach the threshold (`--loop-threshold`, 0.9), it reports the shortest one
 scoring within 0.05 of the strongest. That is the repeat length rather than a multiple of it. A
 repeat of 6 seconds or longer (`--min-period`) fails. A shorter one is reported and passes, because
-music repeats at bar length. The loop check needs 13 s at the defaults; a shorter file reports ok
-with a note.
+music repeats at bar length. A file under 12 s at the defaults (twice `--min-period`) cannot play
+a 6 s repeat twice, so it reports ok with a note saying so.
 
 `steps`: half-second loudness blocks every 0.1 s. The sustained step is the mean level over two
 seconds after a half-second gap against the two seconds before; it fails above 6 dB (`--max-step`).
@@ -98,9 +98,12 @@ window are measured in the mix, so the figure is voice plus bed against bed, whi
 a listener hears than the gain on each stem. Profiles set the minimum: `music` 10 LU (the default),
 `ambience` 15 LU, `wcag` 20 LU. The read needs pauses of 0.9 seconds or more. Where the
 voiceover starts in the mix is found from the two envelopes, so it does not have to start at zero;
-`--vo-offset` sets it by hand. A voice too far under the bed to match is measured from zero with a
-warning, and such a mix fails at any offset. A mix whose bed-only windows are silent (the
-voiceover passed as the mix) is refused.
+`--vo-offset` sets it by hand. When no start can be trusted (a voice far under the bed, or a bed
+with a speech-like rhythm of its own), the mix is measured from zero and at the closest match. If
+both agree, that is the verdict, with a warning; if one passes and the other fails, the check
+reports it could not tell (exit 2) and asks for `--vo-offset`. A mix whose start was not found
+passes only when it passes from both starts tried, and carries the warning that the start was
+not found. A mix whose bed-only windows are silent (the voiceover passed as the mix) is refused.
 
 The check compares speech windows with the bed in the gaps between them, so a bed that is ducked
 under speech barely changes the figure. Torcoli et al. measured speech against the ducked
@@ -127,8 +130,9 @@ Loops under fades, in part of a file, with crossfaded joins or at changing gain 
 right period, the lowest at 0.96. On one other seed a 10 s loop at gains up to 6 dB apart was named
 at 20 s; it still failed. Beds with a 6 dB swell every 8 or 20 seconds passed, the highest at 0.85.
 
-A repeat is seen only when the repeating stretch is at least one period plus the 10 s window long,
-so a 6 to 8 second clip played twice usually is not. The longest repeat it can see is the file
+A repeat is seen only when the repeating stretch is at least one period plus the window long. The
+window is 10 s, or a third of a file under 30 s. So a 6 to 8 second clip played twice inside a
+longer bed usually is not seen, while a file that is just that clip played twice is. The longest repeat it can see is the file
 length minus the window: about 10.5 s less than the file, or a third less under 30 s. A gain cycle
 with nothing under it, such as a steady tremolo or the same swell twice on room tone, reads as a
 loop; the details are in

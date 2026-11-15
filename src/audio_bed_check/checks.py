@@ -74,7 +74,9 @@ def loop_score(
     one window, the score is the best Pearson correlation of a 10 s window of d with the window that
     many frames later (window starts every 0.5 s; a third of the file, at least 3 s, under 30 s).
     So a repeat is found even when only part of the file loops, but only when the repeating stretch is
-    at least one period plus the window long: a 6 s clip played twice is not seen. The longest repeat
+    at least one period plus the window long: a 6 s clip played twice inside a longer file is not
+    seen, a 12 s file that is the clip twice is. Under twice `min_period` no such repeat can play
+    twice, and the result says so. The longest repeat
     that can be found is the file length minus the window (about 10.5 s less than the file). Lags
     resolve in 0.1 s steps.
 
@@ -91,11 +93,17 @@ def loop_score(
         raise ValueError("min_period must be positive")
     if not 0 < threshold <= 1:
         raise ValueError("threshold must be between 0 (exclusive) and 1")
+    if len(samples) / sr < 2 * min_period:   # not a guess: no such repeat fits
+        return LoopResult(0.0, None, threshold, min_period, True,
+                          (f"shorter than {2 * min_period:g}s, so no repeat of {min_period:g}s or more "
+                           "can play twice",))
+    # long enough to hold a repeat but too short to measure one (a --min-period of about 3.3 s or
+    # less, on a file under about 6.7 s); the CLI reports this as could not check
     too_short = LoopResult(0.0, None, threshold, min_period, True,
-                           (f"too short to test for a repeat longer than {min_period:g}s",))
-    if len(samples) / sr < 2 * min_period + 1:
-        return too_short
+                           (f"too short to test for a repeat of {min_period:g}s or more",))
     env = block_loudness(_weighted(samples, sr, weighted), sr, WINDOW, HOP)
+    if len(env) < 2:   # under one 400 ms window, with a tiny min_period
+        return too_short
     if np.ptp(env) < 0.01:   # silence or a constant tone; a steady bed still varies by tenths of a dB
         return LoopResult(0.0, None, threshold, min_period, True,
                           ("level is constant; nothing to correlate",))
@@ -232,8 +240,9 @@ SEP_ALIGN_MIN_R = 0.5
 
 
 class NoSpeechError(ValueError):
-    """The separation check could not run: no speech windows, no gaps between them, or (with an
-    offset) no window inside the mix. The CLI reports it as exit 2, not as a failing mix."""
+    """The separation check could not run: no speech windows, no gaps between them, no window inside
+    the mix, or a start that could not be found and decides the verdict. The CLI reports it as
+    exit 2, not as a failing mix."""
 
 
 @dataclass(frozen=True)
@@ -318,7 +327,7 @@ def _window_level(blocks: np.ndarray, t0: float, t1: float) -> float | None:
 
 
 def _estimate_offset(vo: np.ndarray, mix_weighted: np.ndarray, sr: int, runs: list[tuple[float, float]],
-                     vo_offset: float = 0.0) -> float | None:
+                     vo_offset: float = 0.0, *, trusted: bool = True) -> float | None:
     """Where the voiceover seems to start in the mix, seconds, at 0.1 s resolution; None when either
     file is shorter than one 400 ms window, or when the match is too weak to trust.
 
@@ -331,7 +340,8 @@ def _estimate_offset(vo: np.ndarray, mix_weighted: np.ndarray, sr: int, runs: li
 
     The estimate stands only when, at that lag, the voiceover's envelope inside its runs and the mix's
     at the same moments correlate at SEP_ALIGN_MIN_R (0.5) or more. A voice buried under a textured
-    bed otherwise lands on whatever lag the bed's texture happens to match.
+    bed otherwise lands on whatever lag the bed's texture happens to match. With `trusted` False the
+    best lag is returned without that test: the closest match, which may be wrong.
     """
     v_raw = np.maximum(block_loudness(k_weight(vo, sr), sr, WINDOW, HOP), SEP_SILENT_LKFS)
     m_raw = np.maximum(block_loudness(mix_weighted, sr, WINDOW, HOP), SEP_SILENT_LKFS)
@@ -359,7 +369,7 @@ def _estimate_offset(vo: np.ndarray, mix_weighted: np.ndarray, sr: int, runs: li
     a, b = v_raw[j], m_raw[j + lag]
     if np.ptp(a) < 1e-9 or np.ptp(b) < 1e-9:
         return None
-    if float(np.corrcoef(a, b)[0, 1]) < SEP_ALIGN_MIN_R:
+    if trusted and float(np.corrcoef(a, b)[0, 1]) < SEP_ALIGN_MIN_R:
         return None
     return round(lag * HOP, 2)
 
@@ -375,10 +385,13 @@ def separation(vo: np.ndarray, mix: np.ndarray, sr: int, *, min_lu: float = 10.0
 
     Bed-only windows at or under -70 LKFS mean the mix holds no bed (the voiceover given as the mix,
     usually) and raise NoSpeechError. The voiceover's start in the mix is estimated from the two
-    envelopes. With `vo_offset` None (the default) the windows are measured at that estimate, or at
-    0 with a warning when there is no trusted estimate (a voice buried under the bed does not match,
-    and such a mix fails at any offset). With a `vo_offset` given, a trusted estimate more than 0.2 s
-    from it is named in a warning.
+    envelopes. With `vo_offset` None (the default) the windows are measured at that estimate. When
+    there is no trusted estimate (a voice buried under the bed does not match, nor does one over a
+    bed with a speech-like rhythm of its own) they are measured from 0 and at the closest match: when
+    the two verdicts agree, that is the result, with a warning; when they differ, NoSpeechError, since
+    the start decides the verdict and only `vo_offset` can settle it. Only those two starts are
+    tried, so an untrusted pass is still a guess; the warning marks it. With a `vo_offset` given, a
+    trusted estimate more than 0.2 s from it is named in a warning.
     """
     runs = speech_runs(vo, sr, gate_dbfs)
     if not runs:
@@ -399,15 +412,33 @@ def separation(vo: np.ndarray, mix: np.ndarray, sr: int, *, min_lu: float = 10.0
     else:
         estimate = _estimate_offset(vo, weighted, sr, runs, vo_offset)
     blocks = block_loudness(weighted, sr, SEP_BLOCK, SEP_BLOCK)
-    speech = [v for v in (_window_level(blocks, a + vo_offset, b + vo_offset) for a, b in runs)
-              if v is not None]
-    bed = [v for v in (_window_level(blocks, a + vo_offset, b + vo_offset) for a, b in gaps) if v is not None]
-    if not speech or not bed:
-        raise NoSpeechError("the voiceover's speech windows fall outside the mix; check --vo-offset")
-    speech_lkfs, bed_lkfs = float(np.mean(speech)), float(np.mean(bed))
-    if bed_lkfs <= SEP_SILENT_LKFS:
-        raise NoSpeechError("the bed-only windows are silent in the mix; is MIX the rendered mix?")
+
+    def measure(offset: float) -> tuple[list[float], list[float], float, float]:
+        speech = [v for v in (_window_level(blocks, a + offset, b + offset) for a, b in runs)
+                  if v is not None]
+        bed = [v for v in (_window_level(blocks, a + offset, b + offset) for a, b in gaps) if v is not None]
+        if not speech or not bed:
+            raise NoSpeechError("the voiceover's speech windows fall outside the mix; check --vo-offset")
+        speech_lkfs, bed_lkfs = float(np.mean(speech)), float(np.mean(bed))
+        if bed_lkfs <= SEP_SILENT_LKFS:
+            raise NoSpeechError("the bed-only windows are silent in the mix; is MIX the rendered mix?")
+        return speech, bed, speech_lkfs, bed_lkfs
+
+    speech, bed, speech_lkfs, bed_lkfs = measure(vo_offset)
     sep = speech_lkfs - bed_lkfs
+    if auto and not found:
+        # the closest match may be the true start; if the verdict there differs, the start decides it
+        closest = _estimate_offset(vo, weighted, sr, runs, 0.0, trusted=False)
+        if closest is not None and abs(closest) > SEP_ALIGN_TOLERANCE + 1e-9:
+            try:
+                _, _, s, b = measure(closest)
+            except NoSpeechError:
+                s = b = None
+            if s is not None and (s - b >= min_lu) != (sep >= min_lu):
+                raise NoSpeechError(
+                    "could not tell where the voiceover starts in the mix, and it decides the result: "
+                    f"from 0.0s the separation is {sep:.2f} LU, from {closest:.1f}s (the closest match) "
+                    f"{s - b:.2f} LU; pass --vo-offset")
     peak = true_peak(mix, sr)
     warnings: tuple[str, ...] = ()
     dropped = len(runs) + len(gaps) - len(speech) - len(bed)

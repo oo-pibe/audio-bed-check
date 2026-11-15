@@ -12,13 +12,15 @@ SRC = ROOT / "src" / "audio_bed_check"
 # every sentence a user can see, as fragments; each must still be in src/ and be explained in
 # references/cli.md
 MESSAGES = [
-    "too short to test for a repeat longer than", "not flagged", "too short to measure level steps",
+    "so no repeat of", "could not tell where the voiceover starts", "too short to test for a repeat of",
+    "not flagged", "too short to measure level steps",
     "nothing to correlate", "min_period must be positive", "threshold must be between", "edge must be >= 0",
     "no speech found in the voiceover above", "the voiceover has no pause of",
     "the bed-only windows are silent in the mix", "the voiceover seems to start at",
     "s or more between speech runs",
     "window(s) fall outside the mix", "speech windows fall outside the mix",
-    "hop must be at least one sample", "must be a number, got", "must be a finite number, got", "must be a positive number, got",
+    "hop must be at least one sample", "must be a number, got", "must be a finite number, got",
+    "must be a positive number, got",
     "must be zero or more, got", "must be between 0 (exclusive) and 1, got",
     "mix true peak above -1 dBTP", "ffmpeg not found on PATH; install it or set AUDIO_BED_CHECK_FFMPEG",
     "no such file", "ffmpeg could not decode it", "it has no audio stream", "ffmpeg not found at",

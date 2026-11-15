@@ -19,6 +19,9 @@ COMMANDS = ("loop", "steps", "bed", "separation")
 
 def _number(text: str) -> float:
     try:
+        # float() also reads digits from other scripts ("３", "٣"); the JavaScript port does not
+        if not text.strip().isascii():
+            raise ValueError
         value = float(text)
     except ValueError:   # argparse would print the function's name: "invalid _positive value"
         raise argparse.ArgumentTypeError(f"must be a number, got {text}") from None
@@ -160,6 +163,10 @@ def _run(args) -> list[dict]:
         if args.command in ("loop", "bed"):
             r = loop_score(samples, sr, min_period=args.min_period, threshold=args.loop_threshold,
                            weighted=weighted)
+            short = next((n for n in r.notes if n.startswith("too short")), None)
+            if short is not None:   # nothing was measured: could not check, never a pass
+                results.append({"file": path, "passed": False, "error": f"{path}: {short}"})
+                continue
             entry["loop"] = _result(r)
             entry["passed"] = entry["passed"] and r.passed
         if args.command in ("steps", "bed"):

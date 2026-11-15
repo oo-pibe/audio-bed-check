@@ -28,8 +28,9 @@ best window decides, so a loop is found when only part of the file repeats, unde
 different gain on each repeat. Lags resolve in 0.1 s steps.
 
 Two limits on length follow from the window. A repeat is seen only when the repeating stretch is at
-least one period plus the window (10 s) long, so a 6 to 8 s clip played twice usually is not: a 6 s
-clip twice inside 40 s of other material passes, three times fails. The longest repeat that can be
+least one period plus the window (10 s; a third of a file under 30 s) long, so a 6 to 8 s clip
+played twice inside a longer bed usually is not: a 6 s clip twice inside 40 s of other material
+passes, three times fails. A 12 s file that is the clip played twice fails. The longest repeat that can be
 seen is the file length minus the window, about 10.5 s less than the file (a third less under
 30 s): a 54 s clip repeated into a 60 s file is not caught.
 
@@ -40,8 +41,8 @@ or a half-period peak. If the fundamental is shorter than `--min-period` (6 s) t
 a note, because music repeats at bar length; at or longer, it fails. With no peak at the threshold,
 the score shown is the strongest local peak at lags of `--min-period` or more, and the file passes.
 
-Files shorter than twice the minimum period plus a second (13 s at the defaults) are not judged;
-they report ok with a note.
+A file shorter than twice the minimum period (12 s at the defaults) cannot play such a repeat
+twice; it reports ok with a note saying so.
 
 Validation, on generated signals. The figures are from one run of `scripts/loop_sweep.py` in the
 repository, which prints them. 400 unlooped textured beds of 30 to 600 s: no failures, worst score

@@ -243,3 +243,30 @@ def test_a_voice_that_cannot_be_found_is_measured_from_zero_with_a_warning():
     r = separation(vo, mix, SR, gate_dbfs=-70.0)
     assert not r.offset_found and r.vo_offset_s == 0.0 and not r.passed
     assert any(w.startswith("could not find where the voiceover starts") for w in r.warnings)
+
+
+def speechlike_bed_mix(seed: int = 1, start: float = 2.0):
+    """A voice level with a bed that has a speech-like on/off rhythm of its own (a sung line, drum
+    hits), starting `start` s in. The closest match is the true start but cannot be trusted."""
+    from tests.synth import fade
+    vo = fade(gated(noise(25, 300 + seed, rms_dbfs=-18), irregular_read(25, 50 + seed)))
+    bed = gated(noise(36, 400 + seed, rms_dbfs=-18), irregular_read(36, 400 + seed + 999))
+    mix = (bed + gain(textured(36, 401 + seed), -20)).astype(np.float32)
+    i = int(start * SR)
+    mix[i:i + len(vo)] += vo
+    return vo, mix
+
+
+def test_an_untrusted_start_that_decides_the_verdict_is_could_not_check():
+    vo, mix = speechlike_bed_mix()
+    assert separation(vo, mix, SR, vo_offset=2.0).passed   # the true start passes
+    with pytest.raises(NoSpeechError, match=r"could not tell where the voiceover starts .* from 0\.0s the "
+                                            r"separation is 0\.18 LU, from 2\.0s \(the closest match\)"):
+        separation(vo, mix, SR)
+
+
+def test_a_buried_voice_still_fails_when_both_starts_fail():
+    # the untrusted closest match is tried too; under the bed it fails there as well, so the FAIL stands
+    vo, mix = irregular_mix(-10.0, 0, pad=3.0)
+    r = separation(vo, mix, SR, gate_dbfs=-70.0)
+    assert not r.passed and not r.offset_found

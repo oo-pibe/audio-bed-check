@@ -72,7 +72,20 @@ def test_too_short_file_prints_the_note_on_an_ok_line(wavs, capsys, tmp_path):
     short = tmp_path / "short.wav"
     write_wav(short, textured(10, 9))
     assert cli.main(["loop", str(short)]) == 0
-    assert "ok    loop        0.00 (too short to test for a repeat longer than 6s)" in capsys.readouterr().out
+    assert "ok    loop        0.00 (shorter than 12s, so no repeat of 6s or more can play twice)" in (
+        capsys.readouterr().out)
+
+
+def test_a_file_too_short_to_measure_a_repeat_it_could_hold_is_an_error(wavs, capsys, tmp_path):
+    short = tmp_path / "short.wav"
+    write_wav(short, textured(4.5, 9))
+    assert cli.main(["loop", str(short), "--min-period", "2"]) == 2
+    assert "too short to test for a repeat of 2s or more" in capsys.readouterr().out
+    tiny = tmp_path / "tiny.wav"   # under one 400 ms window: no envelope at all
+    write_wav(tiny, textured(0.3, 9))
+    assert cli.main(["loop", str(tiny), str(wavs["clean"]), "--min-period", "0.1"]) == 2
+    out = capsys.readouterr().out
+    assert "too short to test for a repeat of 0.1s or more" in out and "clean.wav" in out
 
 
 def test_json_shape_and_rounding(wavs, capsys):
@@ -317,3 +330,12 @@ def test_a_file_too_short_for_the_steps_check_is_could_not_check(wavs, tmp_path,
     assert cli.main(["bed", str(short), str(wavs["clean"])]) == 2
     out = capsys.readouterr().out
     assert f"  error {short}: too short to measure level steps (needs at least" in out
+
+
+@pytest.mark.parametrize("value", ["abc", "３", "٣", "1０"])
+def test_a_value_that_is_not_an_ascii_number_is_refused(value, capsys):
+    # float() reads full-width and Arabic-Indic digits; the JavaScript port does not, and both refuse
+    with pytest.raises(SystemExit) as e:
+        cli.main(["bed", "a.wav", "--max-step", value])
+    assert e.value.code == 2
+    assert f"argument --max-step: must be a number, got {value}" in capsys.readouterr().err

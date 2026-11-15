@@ -307,6 +307,12 @@ function runChecks(args) {
     const weighted = kWeight(samples, sr); // once per file, shared by both checks
     if (args.command === "loop" || args.command === "bed") {
       const r = loopScore(samples, sr, { minPeriod: args.minPeriod, threshold: args.loopThreshold, weighted });
+      const short = r.notes.find((n) => n.startsWith("too short"));
+      if (short !== undefined) {
+        // nothing was measured: could not check, never a pass
+        results.push({ file, passed: false, error: `${file}: ${short}` });
+        continue;
+      }
       entry.loop = rounded(r);
       entry.passed = entry.passed && r.passed;
     }

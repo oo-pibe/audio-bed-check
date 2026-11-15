@@ -146,11 +146,11 @@ def test_a_short_file_is_reported_not_judged():
     assert r.passed
     assert r.period_s is None
     assert r.score == 0.0
-    assert r.notes == ("too short to test for a repeat longer than 6s",)
+    assert r.notes == ("shorter than 12s, so no repeat of 6s or more can play twice",)
 
 
-def test_a_13s_file_is_just_long_enough_to_judge():
-    r = loop_score(textured(13, 5), SR)
+def test_a_12s_file_is_just_long_enough_to_judge():
+    r = loop_score(textured(12, 5), SR)
     assert r.passed and r.period_s is None and r.notes == ()
     assert 0.0 < r.score < 0.8
 
@@ -260,3 +260,11 @@ def test_a_short_clip_twice_is_not_seen_three_times_is(seed):
     r = loop_score(thrice, SR)
     assert not r.passed
     assert abs(r.period_s - 6.0) < 0.15
+
+
+@pytest.mark.parametrize("period", [6.0, 6.2])
+def test_a_file_that_is_one_clip_played_twice_fails(period):
+    # 12 to 13 s: long enough to hold the repeat twice, and the window shrinks to a third of the file
+    r = loop_score(tile(textured(period, 70), 2), SR)
+    assert not r.passed
+    assert abs(r.period_s - period) < 0.15

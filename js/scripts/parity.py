@@ -72,6 +72,8 @@ def beds(sweep: bool):
     yield "constant tone", sine(20, 440, 0.25)
     yield "short 3 s", textured(3, 11)
     yield "short 7 s", textured(7, 12)
+    yield "one 6.2 s clip twice (12.4 s)", tile(textured(6.2, 18), 2)
+    yield "just under twice --min-period (11.9 s)", textured(11.9, 19)
     yield "fade edges", fade_edges(textured(30, 13), 2.0)
     left, right = textured(30, 14), textured(30, 15)
     yield "stereo independent", np.stack([left, right], axis=1)
@@ -110,6 +112,9 @@ def mixes():
     buried = bed.copy()
     buried[int(3.0 * SR):int(3.0 * SR) + len(vo)] += gain(vo, -22)
     yield "buried 3 s in, not found", vo, buried.astype(np.float32), {"gateDbfs": -70.0}
+    from tests.test_separation import speechlike_bed_mix
+    for seed, start in ((1, 2.0), (2, 5.3), (3, 0.0)):   # untrusted start: could not tell, or agreed
+        yield f"speech-like bed, {start} s in", *speechlike_bed_mix(seed, start), {}
 
 
 def same(a, b) -> bool:
@@ -270,6 +275,9 @@ def main():
     b, m, v = files[0], str(tmp / "mix00.wav"), str(tmp / "vo00.wav")
     short = str(tmp / "short.wav")
     write_wav(short, textured(5, 77), clip=True)
+    tiny, sub_window = str(tmp / "tiny.wav"), str(tmp / "subwindow.wav")
+    write_wav(tiny, textured(4.5, 78), clip=True)
+    write_wav(sub_window, textured(0.3, 79), clip=True)
     odd = [
         ["loop", b, "--json", b], ["loop", "-x"], ["loop", "--version"], ["bed", b, "--m", "3"],
         ["bed", b, "--max-s=2", "-x"], ["bed", b, "--max-step", "1e400"],
@@ -288,6 +296,9 @@ def main():
         ["steps", str(tmp / "missing.wav"), b], ["bed", "-my file.wav"], ["--vers"],
         ["steps", b, "--ffmpeg", str(tmp / "no-such-ffmpeg")],
         ["steps", short], ["bed", short, b], ["loop", short],
+        # a file that could hold a repeat but is too short to measure one; and one under a 400 ms window
+        ["loop", tiny, "--min-period", "2"], ["bed", tiny, b, "--min-period", "2"],
+        ["loop", sub_window, "--min-period", "0.1"], ["loop", sub_window, b, "--min-period", "0.1"],
     ]
     for argv in odd:
         compare(argv, " ".join(argv) or "(no arguments)")

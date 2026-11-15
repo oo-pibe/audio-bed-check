@@ -111,3 +111,22 @@ test("separation finds where the voice starts when no offset is given", () => {
   const wrong = separation(vo, m, SR, { voOffset: 0 });
   assert.ok(wrong.warnings.some((w) => w.includes("seems to start at 4.0s")));
 });
+
+test("a file that is one clip played twice fails; under twice --min-period it cannot loop", () => {
+  for (const p of [6.0, 6.2]) {
+    const clip = textured(p, 70), x = new Float32Array(2 * clip.length);
+    x.set(clip, 0);
+    x.set(clip, clip.length);
+    const r = loopScore([x], SR);
+    assert.equal(r.passed, false, `period ${p}`);
+    assert.ok(Math.abs(r.period_s - p) < 0.15, `period ${r.period_s}`);
+  }
+  const short = loopScore([textured(10, 5)], SR);
+  assert.equal(short.passed, true);
+  assert.deepEqual(short.notes, ["shorter than 12s, so no repeat of 6s or more can play twice"]);
+  const unmeasured = loopScore([textured(4.5, 9)], SR, { minPeriod: 2 });
+  assert.deepEqual(unmeasured.notes, ["too short to test for a repeat of 2s or more"]);
+  // under one 400 ms window there is no envelope at all; never "level is constant", never a pass
+  assert.deepEqual(loopScore([textured(0.3, 9)], SR, { minPeriod: 0.1 }).notes,
+    ["too short to test for a repeat of 0.1s or more"]);
+});

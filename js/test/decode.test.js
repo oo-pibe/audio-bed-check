@@ -106,7 +106,9 @@ test("a relative PATH entry is not searched: it would run a binary from the curr
     assert.throws(() => findFfmpeg(), DecodeError);
   });
   withEnv(root, { PATH: path.join(root, "bin"), AUDIO_BED_CHECK_FFMPEG: undefined }, () => {
-    assert.equal(findFfmpeg(), exe);
+    // Windows matches PATHEXT's case (ffmpeg.EXE); its paths are case-insensitive, so the file is the same
+    const norm = (p) => (process.platform === "win32" ? p.toLowerCase() : p);
+    assert.equal(norm(findFfmpeg()), norm(exe));
   });
 });
 

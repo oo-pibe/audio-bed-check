@@ -112,7 +112,7 @@ def mixes():
     buried = bed.copy()
     buried[int(3.0 * SR):int(3.0 * SR) + len(vo)] += gain(vo, -22)
     yield "buried 3 s in, not found", vo, buried.astype(np.float32), {"gateDbfs": -70.0}
-    from tests.test_separation import speechlike_bed_mix
+    from tests.synth import speechlike_bed_mix
     for seed, start in ((1, 2.0), (2, 5.3), (3, 0.0)):   # untrusted start: could not tell, or agreed
         yield f"speech-like bed, {start} s in", *speechlike_bed_mix(seed, start), {}
 

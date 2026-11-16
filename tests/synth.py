@@ -164,3 +164,14 @@ def irregular_read(seconds: float, seed: int = 0) -> list[tuple[float, float]]:
             return runs
         runs.append((round(t, 3), round(end, 3)))
         t = end + rng.uniform(0.95, 1.5)
+
+
+def speechlike_bed_mix(seed: int = 1, start: float = 2.0):
+    """A voice level with a bed that has a speech-like on/off rhythm of its own (a sung line, drum
+    hits), starting `start` s in. The closest match is the true start but cannot be trusted."""
+    vo = fade(gated(noise(25, 300 + seed, rms_dbfs=-18), irregular_read(25, 50 + seed)))
+    bed = gated(noise(36, 400 + seed, rms_dbfs=-18), irregular_read(36, 400 + seed + 999))
+    mix = (bed + gain(textured(36, 401 + seed), -20)).astype(np.float32)
+    i = int(start * SR)
+    mix[i:i + len(vo)] += vo
+    return vo, mix
